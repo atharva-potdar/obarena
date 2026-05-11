@@ -89,8 +89,8 @@ MAX_LOG_BYTES         max compiler output captured on failure
 ## Constraints
 
 - Build pods run in the `builds` namespace with default-deny egress
-- Build pods have no network access — cannot download dependencies
-  Submissions must be self-contained single-file programs
+- Build pods have no network access — cannot download dependencies. The build pod will have no internet during the build process. Anything that is not vendored or requires internet access to build will fail the build process.
+- Submissions must be the entire project, with vendored dependencies
 - Binary size limit: 50MB
 - Build timeout: 120 seconds (configurable)
 - One build at a time per submission (no parallel builds for same ID)
