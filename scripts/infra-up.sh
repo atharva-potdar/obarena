@@ -2,16 +2,18 @@
 set -euo pipefail
 export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 
-echo "Applying platform infra manifests"
+echo "==> Applying platform infra manifests"
 kubectl apply -f infra/k8s/platform/
 
-echo "Waiting for services to be ready"
+echo "==> Waiting for services to be ready"
+kubectl wait --for=condition=Available deployment/seaweedfs -n platform --timeout=120s
 kubectl wait --for=condition=Available deployment/redpanda -n platform --timeout=120s
 kubectl wait --for=condition=Available deployment/timescaledb -n platform --timeout=120s
 kubectl wait --for=condition=Available deployment/redis -n platform --timeout=120s
-kubectl wait --for=condition=Available deployment/seaweedfs -n platform --timeout=120s
+kubectl wait --for=condition=Available deployment/submission-api -n platform --timeout=60s
 
-echo "Creating SeaweedFS bucket"
+echo "==> Creating SeaweedFS bucket"
+kubectl delete pod seaweedfs-init -n platform --ignore-not-found --wait
 kubectl run seaweedfs-init -n platform \
   --image=amazon/aws-cli:latest \
   --restart=Never \
@@ -22,9 +24,10 @@ kubectl run seaweedfs-init -n platform \
   --endpoint-url http://seaweedfs.platform.svc.cluster.local:8333
 kubectl wait --for=jsonpath='{.status.phase}'=Succeeded \
   pod/seaweedfs-init -n platform --timeout=60s
-kubectl delete pod seaweedfs-init -n platform
+kubectl delete pod seaweedfs-init -n platform --wait
 
-echo "Creating Redpanda topics"
+echo "==> Creating Redpanda topics"
+kubectl delete pod rpk-topics -n platform --ignore-not-found --wait
 kubectl run rpk-topics -n platform \
   --image=docker.redpanda.com/redpandadata/redpanda:v26.1.6 \
   --restart=Never \
@@ -36,9 +39,10 @@ kubectl run rpk-topics -n platform \
   "
 kubectl wait --for=jsonpath='{.status.phase}'=Succeeded \
   pod/rpk-topics -n platform --timeout=60s
-kubectl delete pod rpk-topics -n platform
+kubectl delete pod rpk-topics -n platform --wait
 
-echo "Applying TimescaleDB schema"
+echo "==> Applying TimescaleDB schema"
+kubectl delete pod tsdb-schema -n platform --ignore-not-found --wait
 kubectl run tsdb-schema -n platform \
   --image=timescale/timescaledb:latest-pg16 \
   --restart=Never \
@@ -68,6 +72,6 @@ kubectl run tsdb-schema -n platform \
   "
 kubectl wait --for=jsonpath='{.status.phase}'=Succeeded \
   pod/tsdb-schema -n platform --timeout=60s
-kubectl delete pod tsdb-schema -n platform
+kubectl delete pod tsdb-schema -n platform --wait
 
-echo "infra-up complete"
+echo "==> infra-up complete"

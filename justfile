@@ -2,7 +2,11 @@ export KUBECONFIG := "/etc/rancher/k3s/k3s.yaml"
 
 default: dev-up
 
-dev-up: cluster-init infra-up smoke-test
+dev-up: cluster-init build infra-up smoke-test
+
+build:
+    DOCKER_BUILDKIT=1 docker build -t submission-api:dev -f services/submission-api/Dockerfile .
+    docker save submission-api:dev | sudo k3s ctr images import -
 
 cluster-init:
     bash scripts/cluster-init.sh
