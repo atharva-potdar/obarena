@@ -3,3 +3,5 @@ module iicpc-sh26
 go 1.24
 
 require github.com/coder/websocket v1.8.14
+
+require github.com/HdrHistogram/hdrhistogram-go v1.2.0

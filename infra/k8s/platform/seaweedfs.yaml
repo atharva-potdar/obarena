@@ -1,0 +1,81 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: seaweedfs
+  namespace: platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: seaweedfs
+  template:
+    metadata:
+      labels:
+        app: seaweedfs
+    spec:
+      containers:
+        - name: seaweedfs
+          image: chrislusf/seaweedfs:latest
+          command:
+            - weed
+            - server
+            - -dir=/data
+            - -s3
+            - -s3.port=8333
+            - -master.port=9333
+            - -volume.port=8080
+            - -metricsPort=9324
+          ports:
+            - name: s3
+              containerPort: 8333
+            - name: master
+              containerPort: 9333
+            - name: volume
+              containerPort: 8080
+          resources:
+            requests:
+              memory: 128Mi
+              cpu: "100m"
+            limits:
+              memory: 256Mi
+              cpu: "250m"
+          readinessProbe:
+            httpGet:
+              path: /cluster/status
+              port: 9333
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: seaweedfs-data
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: seaweedfs-data
+  namespace: platform
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: seaweedfs
+  namespace: platform
+spec:
+  selector:
+    app: seaweedfs
+  ports:
+    - name: s3
+      port: 8333
+    - name: master
+      port: 9333
+    - name: volume
+      port: 8080

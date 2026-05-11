@@ -366,8 +366,9 @@ func orderbookHandler(ob *Orderbook) http.HandlerFunc {
 	}
 }
 
-func streamHandler(ob *Orderbook, latency time.Duration) http.HandlerFunc {
+func streamHandler(latency time.Duration) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		ob := NewOrderbook()
 		conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 			InsecureSkipVerify: true,
 		})
@@ -428,15 +429,15 @@ func main() {
 		port = "8080"
 	}
 
-	ob := NewOrderbook()
+	// ob := NewOrderbook()
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"status":"ok"}`))
 	})
-	mux.HandleFunc("GET /orderbook", orderbookHandler(ob))
-	mux.HandleFunc("GET /stream", streamHandler(ob, latency))
+	// mux.HandleFunc("GET /orderbook", orderbookHandler(ob))
+	mux.HandleFunc("GET /stream", streamHandler(latency))
 
 	log.Printf("stub listening :%s (latency=%s)", port, latency)
 	if err := http.ListenAndServe(":"+port, mux); err != nil {

@@ -9,6 +9,20 @@ echo "Waiting for services to be ready"
 kubectl wait --for=condition=Available deployment/redpanda -n platform --timeout=120s
 kubectl wait --for=condition=Available deployment/timescaledb -n platform --timeout=120s
 kubectl wait --for=condition=Available deployment/redis -n platform --timeout=120s
+kubectl wait --for=condition=Available deployment/seaweedfs -n platform --timeout=120s
+
+echo "Creating SeaweedFS bucket"
+kubectl run seaweedfs-init -n platform \
+  --image=amazon/aws-cli:latest \
+  --restart=Never \
+  --env="AWS_ACCESS_KEY_ID=any" \
+  --env="AWS_SECRET_ACCESS_KEY=any" \
+  --env="AWS_DEFAULT_REGION=us-east-1" \
+  --command -- aws s3 mb s3://submissions \
+  --endpoint-url http://seaweedfs.platform.svc.cluster.local:8333
+kubectl wait --for=jsonpath='{.status.phase}'=Succeeded \
+  pod/seaweedfs-init -n platform --timeout=60s
+kubectl delete pod seaweedfs-init -n platform
 
 echo "Creating Redpanda topics"
 kubectl run rpk-topics -n platform \

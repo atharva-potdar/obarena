@@ -55,6 +55,7 @@ echo "Infra services"
 check "Redpanda running" kubectl get pod -n platform -l app.kubernetes.io/name=redpanda --field-selector=status.phase=Running
 check "TimescaleDB running" kubectl get pod -n platform -l app=timescaledb --field-selector=status.phase=Running
 check "Redis running" kubectl get pod -n platform -l app.kubernetes.io/name=redis --field-selector=status.phase=Running
+check "SeaweedFS running" kubectl get pod -n platform -l app=seaweedfs --field-selector=status.phase=Running
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
