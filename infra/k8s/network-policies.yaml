@@ -41,6 +41,12 @@ items:
             - namespaceSelector:
                 matchLabels:
                   kubernetes.io/metadata.name: platform
+              podSelector:
+                matchLabels:
+                  app: redpanda
+          ports:
+            - protocol: TCP
+              port: 9092
         - to:
             - namespaceSelector:
                 matchLabels:
