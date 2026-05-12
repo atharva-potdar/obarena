@@ -35,7 +35,7 @@ check "runtimeclass-reader" kubectl get clusterrole runtimeclass-reader
 echo "gVisor"
 kubectl delete pod gvisor-smoke --ignore-not-found &>/dev/null
 kubectl run gvisor-smoke \
-  --image=debian:stable-slim \
+  --image=alpine:3.23 \
   --restart=Never \
   --overrides='{"spec":{"runtimeClassName":"gvisor"}}' \
   -- uname -r &>/dev/null

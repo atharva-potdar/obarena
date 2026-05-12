@@ -24,7 +24,6 @@ prefetch:
     sudo k3s crictl pull docker.io/library/redis:8-alpine
     sudo k3s crictl pull docker.io/chrislusf/seaweedfs:latest
     sudo k3s crictl pull docker.io/curlimages/curl:latest
-    sudo k3s crictl pull docker.io/library/debian:stable-slim
     sudo k3s crictl pull docker.io/library/gcc:16-trixie
     sudo k3s crictl pull docker.io/library/rust:1.95-alpine
     sudo k3s crictl pull docker.io/library/golang:1.26-alpine
