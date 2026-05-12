@@ -16,29 +16,23 @@ kubectl wait --for=condition=Available deployment/sandbox-orchestrator -n platfo
 kubectl wait --for=condition=Available deployment/bot-orchestrator -n platform --timeout=60s
 kubectl wait --for=condition=Available deployment/telemetry-ingester -n platform --timeout=60s
 
-echo "==> Creating SeaweedFS bucket"
+echo "==> Creating SeaweedFS buckets"
 kubectl delete pod seaweedfs-init -n platform --ignore-not-found --wait
 kubectl run seaweedfs-init -n platform \
-  --image=amazon/aws-cli:latest \
+  --image=curlimages/curl:latest \
   --restart=Never \
-  --env="AWS_ACCESS_KEY_ID=any" \
-  --env="AWS_SECRET_ACCESS_KEY=any" \
-  --env="AWS_DEFAULT_REGION=us-east-1" \
-  --command -- aws s3 mb s3://submissions \
-  --endpoint-url http://seaweedfs.platform.svc.cluster.local:8333
+  --command -- curl -X PUT \
+  http://seaweedfs.platform.svc.cluster.local:8333/submissions
 kubectl wait --for=jsonpath='{.status.phase}'=Succeeded \
   pod/seaweedfs-init -n platform --timeout=60s
 kubectl delete pod seaweedfs-init -n platform --wait
 
 kubectl delete pod seaweedfs-init-builds -n platform --ignore-not-found --wait
 kubectl run seaweedfs-init-builds -n platform \
-  --image=amazon/aws-cli:latest \
+  --image=curlimages/curl:latest \
   --restart=Never \
-  --env="AWS_ACCESS_KEY_ID=any" \
-  --env="AWS_SECRET_ACCESS_KEY=any" \
-  --env="AWS_DEFAULT_REGION=us-east-1" \
-  --command -- aws s3 mb s3://builds \
-  --endpoint-url http://seaweedfs.platform.svc.cluster.local:8333
+  --command -- curl -X PUT \
+  http://seaweedfs.platform.svc.cluster.local:8333/builds
 kubectl wait --for=jsonpath='{.status.phase}'=Succeeded \
   pod/seaweedfs-init-builds -n platform --timeout=60s
 kubectl delete pod seaweedfs-init-builds -n platform --wait

@@ -23,7 +23,7 @@ prefetch:
     sudo k3s crictl pull docker.io/timescale/timescaledb:latest-pg18
     sudo k3s crictl pull docker.io/library/redis:8-alpine
     sudo k3s crictl pull docker.io/chrislusf/seaweedfs:latest
-    sudo k3s crictl pull docker.io/amazon/aws-cli:latest
+    sudo k3s crictl pull docker.io/curlimages/curl:latest
     sudo k3s crictl pull docker.io/library/debian:stable-slim
     sudo k3s crictl pull docker.io/library/gcc:16-trixie
     sudo k3s crictl pull docker.io/library/rust:1.95-alpine
