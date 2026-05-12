@@ -88,3 +88,33 @@ items:
       kind: ClusterRole
       name: runtimeclass-reader
       apiGroup: rbac.authorization.k8s.io
+
+  - apiVersion: rbac.authorization.k8s.io/v1
+    kind: Role
+    metadata:
+      name: bot-job-manager
+      namespace: bots
+    rules:
+      - apiGroups: ["batch"]
+        resources: ["jobs"]
+        verbs: ["create", "get", "list", "watch", "delete"]
+      - apiGroups: [""]
+        resources: ["pods"]
+        verbs: ["get", "list", "watch"]
+      - apiGroups: [""]
+        resources: ["pods/log"]
+        verbs: ["get"]
+
+  - apiVersion: rbac.authorization.k8s.io/v1
+    kind: RoleBinding
+    metadata:
+      name: sandbox-orchestrator-bots-binding
+      namespace: bots
+    subjects:
+      - kind: ServiceAccount
+        name: sandbox-orchestrator
+        namespace: platform
+    roleRef:
+      kind: Role
+      name: bot-job-manager
+      apiGroup: rbac.authorization.k8s.io

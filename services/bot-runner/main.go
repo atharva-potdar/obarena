@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -29,11 +30,14 @@ func main() {
 	endpoint := envStr("TARGET_ENDPOINT", "ws://localhost:8080/stream")
 	numBots := envInt("NUM_BOTS", 10)
 	durationSec := envInt("DURATION_SECONDS", 30)
+	submissionID := envStr("TEST_RUN_ID", "")
+	testRunID := submissionID
+	brokers := strings.Split(envStr("REDPANDA_BROKERS", ""), ",")
 
 	duration := time.Duration(durationSec) * time.Second
 
-	log.Printf("starting %d bots | duration=%s | target=%s",
-		numBots, duration, endpoint)
+	log.Printf("starting %d bots | duration=%s | target=%s | submission=%s",
+		numBots, duration, endpoint, submissionID)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -61,5 +65,16 @@ func main() {
 	for i, b := range bots {
 		metrics[i] = b.metrics
 	}
-	report(merge(metrics), elapsed)
+	agg := merge(metrics)
+	report(agg, elapsed)
+
+	log.Printf("attempting to publish metrics: submission=%s brokers=%v", submissionID, brokers)
+	if submissionID != "" {
+		if err := publishMetrics(brokers, agg, elapsed, submissionID, testRunID); err != nil {
+			log.Printf("failed to publish metrics: %v", err)
+		} else {
+			log.Printf("metrics published to Redpanda")
+		}
+	}
+	log.Printf("Closing bot runner")
 }
