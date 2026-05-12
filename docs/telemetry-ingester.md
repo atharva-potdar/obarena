@@ -114,7 +114,7 @@ REDPANDA_BROKERS        comma-separated broker list
 TIMESCALEDB_DSN         postgres connection string
                         default: postgres://postgres:iicpc@timescaledb.platform.svc.cluster.local:5432/iicpc
 REDIS_ADDR              Redis address
-                        default: redis-master.platform.svc.cluster.local:6379
+                        default: redis.platform.svc.cluster.local:6379
 MAX_ACCEPTABLE_P99_US   p99 latency ceiling for scoring
                         default: 100000
 MAX_ACCEPTABLE_TPS      TPS ceiling for scoring
