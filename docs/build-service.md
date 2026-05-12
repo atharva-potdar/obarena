@@ -44,11 +44,11 @@ Events handled: submission.created
 
 ## Build Images and Commands
 
-| Language | Image                        | Build command                                      |
-|----------|------------------------------|----------------------------------------------------|
-| cpp      | gcc:16-trixie                | g++ -O2 -o binary main.cpp                         |
-| rust     | rust:1.95-alpine             | cargo build --release --offline                    |
-| go       | golang:1.26-alpine           | go build -mod=vendor -o binary .                   |
+| Language | Image            | Build command                                                         |
+|----------|------------------|-----------------------------------------------------------------------|
+| cpp      | gcc:16-trixie    | g++ -static -O2 -o binary main.cpp                                   |
+| rust     | rust:1.95-alpine | RUSTFLAGS="-C target-feature=+crt-static" cargo build --release --offline |
+| go       | golang:1.26-alpine | CGO_ENABLED=0 go build -mod=vendor -o binary .                      |
 
 ---
 

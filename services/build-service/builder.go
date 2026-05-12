@@ -35,13 +35,14 @@ var buildImages = map[string]string{
 }
 
 // buildCommands returns the shell command to build in /workspace and produce /workspace/binary.
+// All binaries are statically linked for portability under gVisor.
 // C++ contestants use header-only libraries; we compile main.cpp directly.
 // Rust uses cargo with --offline for vendored deps.
 // Go uses -mod=vendor for vendored deps.
 var buildCommands = map[string]string{
-	"cpp":  "g++ -O2 -o /workspace/binary /workspace/main.cpp",
-	"rust": "cd /workspace && cargo build --release --offline && cp $(find target/release -maxdepth 1 -type f -perm -111 ! -name '*.d' | head -1) /workspace/binary",
-	"go":   "cd /workspace && go build -mod=vendor -o /workspace/binary .",
+	"cpp":  "g++ -static -O2 -o /workspace/binary /workspace/main.cpp",
+	"rust": "cd /workspace && RUSTFLAGS=\"-C target-feature=+crt-static\" cargo build --release --offline && cp $(find target/release -maxdepth 1 -type f -perm -111 ! -name '*.d' | head -1) /workspace/binary",
+	"go":   "cd /workspace && CGO_ENABLED=0 go build -mod=vendor -o /workspace/binary .",
 }
 
 // BuildResult is returned on successful build.
