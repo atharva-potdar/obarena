@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"time"
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -124,6 +125,9 @@ func (o *Orchestrator) runTest(ctx context.Context, event SandboxReadyEvent) err
 		return fmt.Errorf("create job: %w", err)
 	}
 	log.Printf("created bot runner job: %s", jobName)
+
+	log.Printf("warming up sandbox: submission=%s", event.SubmissionID)
+	time.Sleep(15 * time.Second)
 
 	if err := o.waitForJob(ctx, jobName); err != nil {
 		_ = o.deleteJob(ctx, jobName)

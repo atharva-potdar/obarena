@@ -24,7 +24,7 @@ spec:
               value: "postgres://postgres:iicpc@timescaledb.platform.svc.cluster.local:5432/iicpc"
             - name: REDIS_ADDR
               value: "redis.platform.svc.cluster.local:6379"
-            - name: MAX_ACCEPTABLE_P99_US
+            - name: MAX_ACCEPTABLE_P90_US
               value: "100000"
             - name: MAX_ACCEPTABLE_TPS
               value: "10000"

@@ -14,11 +14,11 @@ import (
 type Ingester struct {
 	db                 *pgx.Conn
 	redis              *redis.Client
-	maxAcceptableP99US float64
+	maxAcceptableP90US float64
 	maxAcceptableTPS   float64
 }
 
-func NewIngester(dsn, redisAddr string, maxP99US, maxTPS float64) (*Ingester, error) {
+func NewIngester(dsn, redisAddr string, maxP90US, maxTPS float64) (*Ingester, error) {
 	db, err := pgx.Connect(context.Background(), dsn)
 	if err != nil {
 		return nil, fmt.Errorf("connect timescaledb: %w", err)
@@ -31,7 +31,7 @@ func NewIngester(dsn, redisAddr string, maxP99US, maxTPS float64) (*Ingester, er
 	return &Ingester{
 		db:                 db,
 		redis:              rdb,
-		maxAcceptableP99US: maxP99US,
+		maxAcceptableP90US: maxP90US,
 		maxAcceptableTPS:   maxTPS,
 	}, nil
 }
@@ -51,8 +51,8 @@ func (i *Ingester) Handle(ctx context.Context, event BotMetricsEvent) {
 		log.Printf("update leaderboard: %v", err)
 	}
 
-	log.Printf("ingested: submission=%s score=%.4f tps=%.0f ack_p99=%dµs",
-		event.SubmissionID, score, event.TPS, event.AckP99US)
+	log.Printf("ingested: submission=%s score=%.4f tps=%.0f ack_p90=%dµs",
+		event.SubmissionID, score, event.TPS, event.AckP90US)
 }
 
 func (i *Ingester) writeTelemetry(ctx context.Context, event BotMetricsEvent) error {
@@ -67,22 +67,19 @@ func (i *Ingester) writeTelemetry(ctx context.Context, event BotMetricsEvent) er
 		event.SubmissionID,
 		event.TestRunID,
 		"bot.metrics",
-		event.AckP99US,
+		event.AckP90US,
 		event.SubmissionID,
 	)
 	return err
 }
 
 func (i *Ingester) computeScore(event BotMetricsEvent) float64 {
-	// Latency score — lower p99 is better
-	latencyScore := 1.0 - (float64(event.AckP99US) / i.maxAcceptableP99US)
+	latencyScore := 1.0 - (float64(event.AckP90US) / i.maxAcceptableP90US)
 	latencyScore = math.Max(0, math.Min(1, latencyScore))
 
-	// Throughput score — higher TPS is better
 	throughputScore := event.TPS / i.maxAcceptableTPS
 	throughputScore = math.Max(0, math.Min(1, throughputScore))
 
-	// Correctness score — fewer rejects is better
 	correctnessScore := 1.0
 	if event.OrdersSent > 0 {
 		correctnessScore = 1.0 - (float64(event.RejectsRecv) / float64(event.OrdersSent))
@@ -122,7 +119,7 @@ func (i *Ingester) writeScore(ctx context.Context, event BotMetricsEvent, score 
 }
 
 func (i *Ingester) updateLeaderboard(ctx context.Context, event BotMetricsEvent, score float64) error {
-	member := fmt.Sprintf("%s:%s", event.SubmissionID, event.TestRunID)
+	member := fmt.Sprintf("%s:%s", event.SubmissionID, event.TeamName)
 	return i.redis.ZAdd(ctx, "leaderboard", redis.Z{
 		Score:  score * 1000,
 		Member: member,
