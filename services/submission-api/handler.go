@@ -2,7 +2,6 @@ package main
 
 import (
 	"archive/tar"
-	"bytes"
 	"compress/gzip"
 	"encoding/json"
 	"fmt"
@@ -39,11 +38,8 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	json.NewEncoder(w).Encode(v)
 }
 
-func validateTarGz(data []byte) error {
-	if len(data) < 2 || data[0] != 0x1f || data[1] != 0x8b {
-		return fmt.Errorf("not a gzip archive")
-	}
-	gr, err := gzip.NewReader(bytes.NewReader(data))
+func validateTarGz(r io.Reader) error {
+	gr, err := gzip.NewReader(r)
 	if err != nil {
 		return fmt.Errorf("invalid gzip: %w", err)
 	}
@@ -57,7 +53,7 @@ func validateTarGz(data []byte) error {
 
 func (h *Handler) handleSubmit(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, h.maxBytes)
-	if err := r.ParseMultipartForm(h.maxBytes); err != nil {
+	if err := r.ParseMultipartForm(2 << 20); err != nil { // 2MB memory limit, rest to disk
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "file too large"})
 		return
 	}
@@ -74,22 +70,22 @@ func (h *Handler) handleSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	file, _, err := r.FormFile("source")
+	file, header, err := r.FormFile("source")
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing source file"})
 		return
 	}
 	defer file.Close()
 
-	raw, err := io.ReadAll(file)
-	if err != nil {
-		log.Printf("read upload: %v", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
+	if err := validateTarGz(file); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid archive"})
 		return
 	}
 
-	if err := validateTarGz(raw); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid archive"})
+	// Rewind the file back to the beginning before uploading
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		log.Printf("seek upload: %v", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
 		return
 	}
 
@@ -99,8 +95,8 @@ func (h *Handler) handleSubmit(w http.ResponseWriter, r *http.Request) {
 	if err := h.storage.Upload(
 		r.Context(),
 		artifactPath,
-		bytes.NewReader(raw),
-		int64(len(raw)),
+		file,
+		header.Size,
 	); err != nil {
 		log.Printf("upload to seaweedfs: %v", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
