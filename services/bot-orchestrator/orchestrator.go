@@ -98,6 +98,7 @@ func (o *Orchestrator) runTest(ctx context.Context, event SandboxReadyEvent) err
 								{Name: "TARGET_ENDPOINT", Value: targetEndpoint},
 								{Name: "NUM_BOTS", Value: fmt.Sprintf("%d", o.cfg.NumBots)},
 								{Name: "DURATION_SECONDS", Value: fmt.Sprintf("%d", o.cfg.DurationSeconds)},
+								{Name: "TEAM_NAME", Value: event.TeamName},
 								{Name: "TEST_RUN_ID", Value: event.SubmissionID},
 								{Name: "REDPANDA_BROKERS", Value: o.cfg.RedpandaBrokers},
 							},

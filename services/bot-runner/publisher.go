@@ -11,6 +11,7 @@ import (
 
 type BotMetricsEvent struct {
 	Event        string  `json:"event"`
+	TeamName     string  `json:"team_name"`
 	SubmissionID string  `json:"submission_id"`
 	TestRunID    string  `json:"test_run_id"`
 	DurationMS   int64   `json:"duration_ms"`
@@ -33,7 +34,7 @@ type BotMetricsEvent struct {
 	EmittedAt    int64   `json:"emitted_at"`
 }
 
-func publishMetrics(brokers []string, agg *AggregateMetrics, duration time.Duration, submissionID, testRunID string) error {
+func publishMetrics(brokers []string, agg *AggregateMetrics, duration time.Duration, teamName, submissionID, testRunID string) error {
 	if len(brokers) == 0 || brokers[0] == "" {
 		return nil
 	}
@@ -48,6 +49,7 @@ func publishMetrics(brokers []string, agg *AggregateMetrics, duration time.Durat
 
 	event := BotMetricsEvent{
 		Event:        "bot.metrics",
+		TeamName:     teamName,
 		SubmissionID: submissionID,
 		TestRunID:    testRunID,
 		DurationMS:   duration.Milliseconds(),

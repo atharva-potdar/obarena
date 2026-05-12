@@ -13,6 +13,8 @@ kubectl wait --for=condition=Available deployment/redis -n platform --timeout=12
 kubectl wait --for=condition=Available deployment/submission-api -n platform --timeout=60s
 kubectl wait --for=condition=Available deployment/build-service -n platform --timeout=60s
 kubectl wait --for=condition=Available deployment/sandbox-orchestrator -n platform --timeout=60s
+kubectl wait --for=condition=Available deployment/bot-orchestrator -n platform --timeout=60s
+kubectl wait --for=condition=Available deployment/telemetry-ingester -n platform --timeout=60s
 
 echo "==> Creating SeaweedFS bucket"
 kubectl delete pod seaweedfs-init -n platform --ignore-not-found --wait

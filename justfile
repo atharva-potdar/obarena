@@ -10,11 +10,13 @@ build:
     DOCKER_BUILDKIT=1 docker build -t sandbox-orchestrator:dev -f services/sandbox-orchestrator/Dockerfile .
     DOCKER_BUILDKIT=1 docker build -t bot-orchestrator:dev -f services/bot-orchestrator/Dockerfile .
     DOCKER_BUILDKIT=1 docker build -t bot-runner:dev -f services/bot-runner/Dockerfile .
+    DOCKER_BUILDKIT=1 docker build -t telemetry-ingester:dev -f services/telemetry-ingester/Dockerfile .
     docker save submission-api:dev | sudo k3s ctr images import -
     docker save build-service:dev | sudo k3s ctr images import -
     docker save sandbox-orchestrator:dev | sudo k3s ctr images import -
     docker save bot-orchestrator:dev | sudo k3s ctr images import -
     docker save bot-runner:dev | sudo k3s ctr images import -
+    docker save telemetry-ingester:dev | sudo k3s ctr images import -
 
 prefetch:
     sudo k3s crictl pull docker.redpanda.com/redpandadata/redpanda:v26.1.7
