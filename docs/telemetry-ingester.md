@@ -22,10 +22,11 @@ Events handled: bot.metrics
 ## Ingestion Flow
 
 1. Consume `bot.metrics` event
-2. Write raw telemetry row to TimescaleDB `telemetry_events` table
+2. Buffer events in memory. Every 500ms flush via pgx.Batch to TimescaleDB `telemetry_events` table
 3. Compute composite score from event metrics
-4. Write composite score to TimescaleDB `submission_scores` table
+4. Buffer scores in memory. Every 500ms flush via pgx.Batch to TimescaleDB `submission_scores` table
 5. Update Redis sorted set with composite score (ZADD leaderboard)
+6. Publish JSON payload to Redis pub/sub channel `leaderboard_updates` for real-time WebSocket push
 
 ---
 
@@ -71,9 +72,10 @@ Score: composite score * 1000 (integer, higher is better)
 Member: "{submission_id}:{team_name}"
 
 ZADD leaderboard <score> <member>
+PUBLISH leaderboard_updates {"submission_id": "uuid", "team_name": "name", "score": 0.8500}
 
 The leaderboard frontend reads from this sorted set via ZREVRANGE
-to get rankings in descending score order.
+to get rankings in descending score order on startup, and subscribes to `leaderboard_updates` for real-time live updates.
 
 ---
 
@@ -126,6 +128,7 @@ MAX_ACCEPTABLE_TPS      TPS ceiling for scoring
 
 - github.com/twmb/franz-go/pkg/kgo    Redpanda consumer
 - github.com/jackc/pgx/v5             TimescaleDB client
+- github.com/jackc/pgx/v5/pgxpool     TimescaleDB connection pool
 - github.com/redis/go-redis/v9         Redis client
 
 ---
