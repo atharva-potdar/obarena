@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -72,11 +74,11 @@ func (b *Bot) Run(ctx context.Context, duration time.Duration, ready chan<- stru
 	defer conn.Close(websocket.StatusNormalClosure, "")
 
 	type stepTemplate struct {
-		isCancel   bool
-		payload    []byte
-		tag        string
-		cancelTag  string
-		expectRej  bool
+		isCancel  bool
+		payload   []byte
+		tag       string
+		cancelTag string
+		expectRej bool
 	}
 	templates := make([]stepTemplate, len(b.seq.Steps))
 	for i, step := range b.seq.Steps {
@@ -98,14 +100,16 @@ func (b *Bot) Run(ctx context.Context, duration time.Duration, ready chan<- stru
 		}
 	}
 
-	msgCh := make(chan IncomingMessage, 1024)
-	type pendingInsert struct {
-		oid string
-		p   pendingOrder
+	if ready != nil {
+		ready <- struct{}{}
 	}
-	pendingCh := make(chan pendingInsert, 1024)
+
+	pending := make(map[string]pendingOrder)
+	var mu sync.Mutex
+	var inFlight atomic.Int32
 	errCh := make(chan error, 1)
 
+	// Reader Goroutine
 	go func() {
 		for {
 			_, rawBytes, err := conn.Read(ctx)
@@ -118,26 +122,7 @@ func (b *Bot) Run(ctx context.Context, duration time.Duration, ready chan<- stru
 			}
 			var msg IncomingMessage
 			if err := json.Unmarshal(rawBytes, &msg); err == nil {
-				msgCh <- msg
-			}
-		}
-	}()
-
-	if ready != nil {
-		ready <- struct{}{}
-	}
-
-	processorCtx, cancelProcessor := context.WithCancel(ctx)
-	defer cancelProcessor()
-	go func() {
-		pending := make(map[string]pendingOrder)
-		for {
-			select {
-			case <-processorCtx.Done():
-				return
-			case p := <-pendingCh:
-				pending[p.oid] = p.p
-			case msg := <-msgCh:
+				mu.Lock()
 				if p, ok := pending[msg.OrderID]; ok {
 					switch msg.Type {
 					case "ack":
@@ -148,14 +133,41 @@ func (b *Bot) Run(ctx context.Context, duration time.Duration, ready chan<- stru
 						b.metrics.fillsRecv++
 						if msg.Remaining == 0 {
 							delete(pending, msg.OrderID)
+							inFlight.Add(-1)
 						}
 					case "reject":
 						b.metrics.rejectsRecv++
 						delete(pending, msg.OrderID)
+						inFlight.Add(-1)
 					case "cancel_ack":
 						delete(pending, msg.OrderID)
+						inFlight.Add(-1)
 					}
 				}
+				mu.Unlock()
+			}
+		}
+	}()
+
+	// Cleanup Goroutine (Garbage Collector)
+	go func() {
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				now := time.Now()
+				mu.Lock()
+				for id, order := range pending {
+					if now.Sub(order.sentAt) > 5*time.Second {
+						delete(pending, id)
+						inFlight.Add(-1)
+						b.metrics.connDrops++
+					}
+				}
+				mu.Unlock()
 			}
 		}
 	}()
@@ -164,6 +176,7 @@ func (b *Bot) Run(ctx context.Context, duration time.Duration, ready chan<- stru
 	iteration := 0
 	tagToID := make(map[string]string)
 
+	// Writer Loop
 	for time.Now().Before(deadline) {
 		if ctx.Err() != nil {
 			return
@@ -171,7 +184,9 @@ func (b *Bot) Run(ctx context.Context, duration time.Duration, ready chan<- stru
 		select {
 		case err := <-errCh:
 			log.Printf("bot %d read error: %v", b.id, err)
+			mu.Lock()
 			b.metrics.connDrops++
+			mu.Unlock()
 			return
 		default:
 		}
@@ -191,14 +206,26 @@ func (b *Bot) Run(ctx context.Context, duration time.Duration, ready chan<- stru
 				oid = orderID(b.id, iteration, tmpl.tag)
 				tagToID[tmpl.tag] = oid
 				payload = bytes.Replace(tmpl.payload, []byte("%s"), []byte(oid), 1)
-				
-				pendingCh <- pendingInsert{oid, pendingOrder{time.Now(), tmpl.expectRej}}
+
+				// Backpressure check
+				for inFlight.Load() > 5000 {
+					time.Sleep(1 * time.Millisecond)
+				}
+
+				// Mutex protects map insert and metrics write
+				mu.Lock()
+				pending[oid] = pendingOrder{time.Now(), tmpl.expectRej}
 				b.metrics.ordersSent++
+				mu.Unlock()
+
+				inFlight.Add(1)
 			}
 
 			if err := conn.Write(ctx, websocket.MessageText, payload); err != nil {
 				log.Printf("bot %d write error: %v", b.id, err)
+				mu.Lock()
 				b.metrics.connDrops++
+				mu.Unlock()
 				return
 			}
 		}
