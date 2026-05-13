@@ -1,6 +1,7 @@
 package main
 
 import (
+	"container/heap"
 	"context"
 	"encoding/json"
 	"log"
@@ -74,17 +75,91 @@ type Order struct {
 	Remaining int64
 	EnteredAt int64
 	SessionID string
+	index     int // heap index for removal
+}
+
+// bidHeap is a max-heap by price, then min-heap by time (earlier first)
+type bidHeap []*Order
+
+func (h bidHeap) Len() int { return len(h) }
+func (h bidHeap) Less(i, j int) bool {
+	if h[i].Price != h[j].Price {
+		return h[i].Price > h[j].Price // higher price = better bid
+	}
+	return h[i].EnteredAt < h[j].EnteredAt // earlier time = first in queue
+}
+
+func (h bidHeap) Swap(i, j int) {
+	h[i], h[j] = h[j], h[i]
+	h[i].index = i
+	h[j].index = j
+}
+
+func (h *bidHeap) Push(x any) {
+	n := len(*h)
+	order := x.(*Order)
+	order.index = n
+	*h = append(*h, order)
+}
+
+func (h *bidHeap) Pop() any {
+	old := *h
+	n := len(old)
+	order := old[n-1]
+	old[n-1] = nil
+	order.index = -1
+	*h = old[:n-1]
+	return order
+}
+
+// askHeap is a min-heap by price, then min-heap by time (earlier first)
+type askHeap []*Order
+
+func (h askHeap) Len() int { return len(h) }
+func (h askHeap) Less(i, j int) bool {
+	if h[i].Price != h[j].Price {
+		return h[i].Price < h[j].Price // lower price = better ask
+	}
+	return h[i].EnteredAt < h[j].EnteredAt // earlier time = first in queue
+}
+
+func (h askHeap) Swap(i, j int) {
+	h[i], h[j] = h[j], h[i]
+	h[i].index = i
+	h[j].index = j
+}
+
+func (h *askHeap) Push(x any) {
+	n := len(*h)
+	order := x.(*Order)
+	order.index = n
+	*h = append(*h, order)
+}
+
+func (h *askHeap) Pop() any {
+	old := *h
+	n := len(old)
+	order := old[n-1]
+	old[n-1] = nil
+	order.index = -1
+	*h = old[:n-1]
+	return order
 }
 
 type Orderbook struct {
 	mu     sync.Mutex
-	bids   []*Order // descending price, ascending time
-	asks   []*Order // ascending price, ascending time
+	bids   bidHeap
+	asks   askHeap
 	orders map[string]*Order
 }
 
 func NewOrderbook() *Orderbook {
-	return &Orderbook{orders: make(map[string]*Order)}
+	ob := &Orderbook{
+		orders: make(map[string]*Order),
+	}
+	heap.Init(&ob.bids)
+	heap.Init(&ob.asks)
+	return ob
 }
 
 // match attempts to fill order against the opposite side.
@@ -94,7 +169,7 @@ func (ob *Orderbook) match(order *Order) []FillMessage {
 	var fills []FillMessage
 
 	if order.Side == "buy" {
-		for len(ob.asks) > 0 && order.Remaining > 0 {
+		for order.Remaining > 0 && len(ob.asks) > 0 {
 			best := ob.asks[0]
 			if order.OrderType == "limit" && order.Price < best.Price {
 				break
@@ -112,11 +187,13 @@ func (ob *Orderbook) match(order *Order) []FillMessage {
 			})
 			if best.Remaining == 0 {
 				delete(ob.orders, best.OrderID)
-				ob.asks = ob.asks[1:]
+				heap.Pop(&ob.asks)
+			} else {
+				heap.Fix(&ob.asks, 0)
 			}
 		}
 	} else {
-		for len(ob.bids) > 0 && order.Remaining > 0 {
+		for order.Remaining > 0 && len(ob.bids) > 0 {
 			best := ob.bids[0]
 			if order.OrderType == "limit" && order.Price > best.Price {
 				break
@@ -134,7 +211,9 @@ func (ob *Orderbook) match(order *Order) []FillMessage {
 			})
 			if best.Remaining == 0 {
 				delete(ob.orders, best.OrderID)
-				ob.bids = ob.bids[1:]
+				heap.Pop(&ob.bids)
+			} else {
+				heap.Fix(&ob.bids, 0)
 			}
 		}
 	}
@@ -147,55 +226,53 @@ func (ob *Orderbook) match(order *Order) []FillMessage {
 func (ob *Orderbook) rest(order *Order) {
 	ob.orders[order.OrderID] = order
 	if order.Side == "buy" {
-		ob.bids = append(ob.bids, order)
-		sort.Slice(ob.bids, func(i, j int) bool {
-			if ob.bids[i].Price != ob.bids[j].Price {
-				return ob.bids[i].Price > ob.bids[j].Price
-			}
-			return ob.bids[i].EnteredAt < ob.bids[j].EnteredAt
-		})
+		heap.Push(&ob.bids, order)
 	} else {
-		ob.asks = append(ob.asks, order)
-		sort.Slice(ob.asks, func(i, j int) bool {
-			if ob.asks[i].Price != ob.asks[j].Price {
-				return ob.asks[i].Price < ob.asks[j].Price
-			}
-			return ob.asks[i].EnteredAt < ob.asks[j].EnteredAt
-		})
+		heap.Push(&ob.asks, order)
 	}
 }
 
 func (ob *Orderbook) remove(orderID, side string) {
+	order, exists := ob.orders[orderID]
+	if !exists {
+		return
+	}
 	delete(ob.orders, orderID)
+
 	if side == "buy" {
-		ob.bids = removeFromSlice(ob.bids, orderID)
+		if order.index >= 0 && order.index < len(ob.bids) {
+			heap.Remove(&ob.bids, order.index)
+		}
 	} else {
-		ob.asks = removeFromSlice(ob.asks, orderID)
+		if order.index >= 0 && order.index < len(ob.asks) {
+			heap.Remove(&ob.asks, order.index)
+		}
 	}
 }
 
 func (ob *Orderbook) cancelSession(sessionID string) {
 	ob.mu.Lock()
 	defer ob.mu.Unlock()
-	for id, o := range ob.orders {
+
+	var toRemove []*Order
+	for _, o := range ob.orders {
 		if o.SessionID == sessionID {
-			delete(ob.orders, id)
-			if o.Side == "buy" {
-				ob.bids = removeFromSlice(ob.bids, id)
-			} else {
-				ob.asks = removeFromSlice(ob.asks, id)
+			toRemove = append(toRemove, o)
+		}
+	}
+
+	for _, o := range toRemove {
+		delete(ob.orders, o.OrderID)
+		if o.Side == "buy" {
+			if o.index >= 0 && o.index < len(ob.bids) {
+				heap.Remove(&ob.bids, o.index)
+			}
+		} else {
+			if o.index >= 0 && o.index < len(ob.asks) {
+				heap.Remove(&ob.asks, o.index)
 			}
 		}
 	}
-}
-
-func removeFromSlice(orders []*Order, id string) []*Order {
-	for i, o := range orders {
-		if o.OrderID == id {
-			return append(orders[:i], orders[i+1:]...)
-		}
-	}
-	return orders
 }
 
 // ── Session ────────────────────────────────────────────────────────────────
@@ -236,7 +313,7 @@ func (s *Session) handleOrder(msg IncomingMessage) {
 		(msg.OrderType != "limit" && msg.OrderType != "market") {
 		s.send <- RejectMessage{
 			Type: "reject", OrderID: msg.OrderID,
-			Reason: "invalid_price", Timestamp: now(),
+			Reason: "invalid_order", Timestamp: now(),
 		}
 		return
 	}
@@ -275,6 +352,7 @@ func (s *Session) handleOrder(msg IncomingMessage) {
 		Remaining: msg.Quantity,
 		EnteredAt: now(),
 		SessionID: s.id,
+		index:     -1,
 	}
 
 	// Ack immediately, before matching. Send is non-blocking (buffered channel).
@@ -408,7 +486,7 @@ func streamHandler(latency time.Duration) http.HandlerFunc {
 			default:
 				s.send <- RejectMessage{
 					Type: "reject", OrderID: msg.OrderID,
-					Reason: "unknown_order", Timestamp: now(),
+					Reason: "unknown_type", Timestamp: now(),
 				}
 			}
 		}
@@ -429,14 +507,12 @@ func main() {
 		port = "8080"
 	}
 
-	// ob := NewOrderbook()
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"status":"ok"}`))
 	})
-	// mux.HandleFunc("GET /orderbook", orderbookHandler(ob))
 	mux.HandleFunc("GET /stream", streamHandler(latency))
 
 	log.Printf("stub listening :%s (latency=%s)", port, latency)

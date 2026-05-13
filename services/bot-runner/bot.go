@@ -208,7 +208,7 @@ func (b *Bot) Run(ctx context.Context, duration time.Duration, ready chan<- stru
 				payload = bytes.Replace(tmpl.payload, []byte("%s"), []byte(oid), 1)
 
 				// Backpressure check
-				for inFlight.Load() > 5000 {
+				for inFlight.Load() > 20 {
 					time.Sleep(1 * time.Millisecond)
 				}
 
