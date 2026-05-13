@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/twmb/franz-go/pkg/kgo"
 )
 
 func envInt(key string, def int) int {
@@ -36,6 +38,16 @@ func main() {
 	brokers := strings.Split(envStr("REDPANDA_BROKERS", ""), ",")
 
 	duration := time.Duration(durationSec) * time.Second
+
+	var client *kgo.Client
+	if len(brokers) > 0 && brokers[0] != "" {
+		var err error
+		client, err = kgo.NewClient(kgo.SeedBrokers(brokers...))
+		if err != nil {
+			log.Fatalf("failed to create kafka client: %v", err)
+		}
+		defer client.Close()
+	}
 
 	log.Printf("starting %d bots | duration=%s | target=%s | submission=%s",
 		numBots, duration, endpoint, submissionID)
@@ -84,11 +96,15 @@ func main() {
 
 	log.Printf("attempting to publish metrics: submission=%s brokers=%v", submissionID, brokers)
 	if submissionID != "" {
-		if err := publishMetrics(brokers, agg, elapsed, teamName, submissionID, testRunID); err != nil {
+		if err := publishMetrics(client, agg, elapsed, teamName, submissionID, testRunID); err != nil {
 			log.Printf("failed to publish metrics: %v", err)
 		} else {
 			log.Printf("metrics published to Redpanda")
 		}
+	}
+	
+	if client != nil {
+		client.Flush(context.Background())
 	}
 	log.Printf("Closing bot runner")
 }

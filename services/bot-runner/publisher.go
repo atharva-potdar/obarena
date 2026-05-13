@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/twmb/franz-go/pkg/kgo"
@@ -34,16 +35,10 @@ type BotMetricsEvent struct {
 	EmittedAt    int64   `json:"emitted_at"`
 }
 
-func publishMetrics(brokers []string, agg *AggregateMetrics, duration time.Duration, teamName, submissionID, testRunID string) error {
-	if len(brokers) == 0 || brokers[0] == "" {
+func publishMetrics(client *kgo.Client, agg *AggregateMetrics, duration time.Duration, teamName, submissionID, testRunID string) error {
+	if client == nil {
 		return nil
 	}
-
-	client, err := kgo.NewClient(kgo.SeedBrokers(brokers...))
-	if err != nil {
-		return fmt.Errorf("new kafka client: %w", err)
-	}
-	defer client.Close()
 
 	tps := float64(agg.ordersSent) / duration.Seconds()
 
@@ -83,8 +78,10 @@ func publishMetrics(brokers []string, agg *AggregateMetrics, duration time.Durat
 		Value: payload,
 	}
 
-	if err := client.ProduceSync(context.Background(), record).FirstErr(); err != nil {
-		return fmt.Errorf("produce: %w", err)
-	}
+	client.Produce(context.Background(), record, func(_ *kgo.Record, err error) {
+		if err != nil {
+			log.Printf("async metrics produce failed: %v", err)
+		}
+	})
 	return nil
 }
