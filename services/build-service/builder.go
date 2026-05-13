@@ -192,7 +192,7 @@ func (b *Builder) createBuildPod(ctx context.Context, name, image string) (*core
 				{
 					Name:       "build",
 					Image:      image,
-					Command:    []string{"sleep", "infinity"},
+					Command:    []string{"sh", "-c", "trap 'exit 0' TERM; sleep infinity & wait $!"},
 					WorkingDir: "/workspace",
 					VolumeMounts: []corev1.VolumeMount{
 						{Name: "workspace", MountPath: "/workspace"},
@@ -313,7 +313,8 @@ func (b *Builder) execBuild(ctx context.Context, podName, buildCmd string) (stri
 func (b *Builder) extractAndUploadBinary(ctx context.Context, podName, binaryPath string) error {
 	// Check binary exists and get its size
 	var sizeOut, sizeErr bytes.Buffer
-	if err := b.execInPod(ctx, podName,
+	if err := b.execInPod(
+		ctx, podName,
 		[]string{"stat", "-c", "%s", "/workspace/binary"},
 		nil, &sizeOut, &sizeErr,
 	); err != nil {
@@ -323,7 +324,8 @@ func (b *Builder) extractAndUploadBinary(ctx context.Context, podName, binaryPat
 	// Read the binary
 	var binaryBuf bytes.Buffer
 	var readErr bytes.Buffer
-	if err := b.execInPod(ctx, podName,
+	if err := b.execInPod(
+		ctx, podName,
 		[]string{"cat", "/workspace/binary"},
 		nil, &binaryBuf, &readErr,
 	); err != nil {
