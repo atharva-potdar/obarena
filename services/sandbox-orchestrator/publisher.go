@@ -56,8 +56,8 @@ func (p *Publisher) PublishSandboxReady(
 		SubmissionID: submissionID,
 		PodName:      podName,
 		PodIP:        podIP,
-		HTTPPort:     8080,
-		WSPort:       8080,
+		HTTPPort:     httpPort,
+		WSPort:       wsPort,
 		TeamName:     teamName,
 		ReadyAt:      time.Now().UnixNano(),
 	}
