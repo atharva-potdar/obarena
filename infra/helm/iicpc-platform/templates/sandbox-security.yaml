@@ -27,10 +27,11 @@ data:
         drop: ["ALL"]
     ```
 
-    ## Pod-level AppArmor annotation:
+    ## Container-level AppArmor profile (GA since K8s v1.31):
     ```yaml
-    annotations:
-      container.apparmor.security.beta.kubernetes.io/<container-name>: runtime/default
+    securityContext:
+      appArmorProfile:
+        type: RuntimeDefault
     ```
 
     ## Isolation Strategy:
