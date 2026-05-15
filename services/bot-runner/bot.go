@@ -44,7 +44,7 @@ func NewBot(id int, endpoint string, seq Sequence) *Bot {
 	}
 }
 
-func (b *Bot) Run(ctx context.Context, duration time.Duration, ready chan<- struct{}, quiet chan<- struct{}) {
+func (b *Bot) Run(ctx context.Context, duration time.Duration, ready chan<- struct{}) {
 	var conn *websocket.Conn
 	for {
 		if ctx.Err() != nil {
@@ -184,7 +184,7 @@ func (b *Bot) Run(ctx context.Context, duration time.Duration, ready chan<- stru
 			mu.Lock()
 			b.metrics.connDrops++
 			mu.Unlock()
-			goto drain
+			return
 		default:
 		}
 
@@ -222,31 +222,9 @@ func (b *Bot) Run(ctx context.Context, duration time.Duration, ready chan<- stru
 				mu.Lock()
 				b.metrics.connDrops++
 				mu.Unlock()
-				goto drain
+				return
 			}
 		}
 		iteration++
 	}
-
-drain:
-	// Always close the connection before signaling quiet so the stub's
-	// cancelSession cleans up any partial-iteration orders left on the book
-	// (e.g. cancel_correctness probe sell cut off by the deadline).
-	// Since ComputeExpected always returns an empty book, we need a clean
-	// book, not live connections, during the snapshot.
-	conn.Close(websocket.StatusNormalClosure, "done")
-
-	// Give the server time to process cancelSession before the validator
-	// queries GET /orderbook.
-	time.Sleep(500 * time.Millisecond)
-
-	// Signal that draining is complete.
-	if quiet != nil {
-		select {
-		case quiet <- struct{}{}:
-		case <-ctx.Done():
-			return
-		}
-	}
-	<-ctx.Done()
 }
