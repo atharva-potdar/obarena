@@ -31,6 +31,8 @@ spec:
                 secretKeyRef:
                   name: iicpc-redis
                   key: password
+            - name: PORT
+              value: "8090"
           ports:
             - name: http
               containerPort: 8090
