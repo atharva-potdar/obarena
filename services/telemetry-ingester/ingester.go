@@ -40,6 +40,12 @@ func NewIngester(dsn, redisAddr, redisPass string, maxLatencyUS, maxTPS float64)
 		Password: redisPass,
 	})
 
+	// Connect PostgreSQL
+	db, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		return nil, fmt.Errorf("pgxpool.New: %w", err)
+	}
+
 	ingester := &Ingester{
 		db:                   db,
 		redis:                rdb,

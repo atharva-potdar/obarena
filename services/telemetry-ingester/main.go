@@ -30,6 +30,9 @@ func main() {
 	redisAddr := envStr("REDIS_ADDR", "redis.platform.svc.cluster.local:6379")
 	redisPass := envStr("REDIS_PASSWORD", "")
 
+	maxLatencyUS := envFloat("MAX_LATENCY_US", 50000.0)
+	maxTPS       := envFloat("MAX_TPS", 1000.0)
+
 	ingester, err := NewIngester(dsn, redisAddr, redisPass, maxLatencyUS, maxTPS)
 	if err != nil {
 		log.Fatalf("init ingester: %v", err)
