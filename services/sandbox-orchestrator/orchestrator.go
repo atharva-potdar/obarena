@@ -157,9 +157,6 @@ func (o *Orchestrator) createSandboxPod(ctx context.Context, name string, binary
 				"app":  "sandbox",
 				"role": "contestant-submission",
 			},
-			Annotations: map[string]string{
-				"container.apparmor.security.beta.kubernetes.io/sandbox": "runtime/default",
-			},
 		},
 		Spec: corev1.PodSpec{
 			AutomountServiceAccountToken: &automount,
@@ -212,11 +209,14 @@ func (o *Orchestrator) createSandboxPod(ctx context.Context, name string, binary
 						Capabilities: &corev1.Capabilities{
 							Drop: []corev1.Capability{"ALL"},
 						},
-						SeccompProfile: &corev1.SeccompProfile{
-							Type:             corev1.SeccompProfileTypeLocalhost,
-							LocalhostProfile: &o.cfg.SeccompProfile,
-						},
+					SeccompProfile: &corev1.SeccompProfile{
+						Type:             corev1.SeccompProfileTypeLocalhost,
+						LocalhostProfile: &o.cfg.SeccompProfile,
 					},
+					AppArmorProfile: &corev1.AppArmorProfile{
+						Type: corev1.AppArmorProfileTypeRuntimeDefault,
+					},
+				},
 					ReadinessProbe: &corev1.Probe{
 						ProbeHandler: corev1.ProbeHandler{
 							HTTPGet: &corev1.HTTPGetAction{
