@@ -42,13 +42,13 @@ spec:
             - name: SANDBOX_RUN_AS_USER
               value: {{ .Values.sandboxOrchestrator.runAsUser | quote }}
             - name: SANDBOX_NODE_SELECTOR_KEY
-              value: "workload"
+              value: {{ .Values.sandboxOrchestrator.nodeSelectorKey | quote }}
             - name: SANDBOX_NODE_SELECTOR_VALUE
-              value: "sandbox"
+              value: {{ .Values.sandboxOrchestrator.nodeSelectorValue | quote }}
             - name: SANDBOX_TOLERATION_KEY
-              value: "workload"
+              value: {{ .Values.sandboxOrchestrator.tolerationKey | quote }}
             - name: SANDBOX_TOLERATION_VALUE
-              value: "sandbox"
+              value: {{ .Values.sandboxOrchestrator.tolerationValue | quote }}
           resources:
             {{- toYaml .Values.resources.sandboxOrchestrator | nindent 12 }}
           livenessProbe:

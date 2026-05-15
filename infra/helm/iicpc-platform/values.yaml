@@ -47,6 +47,10 @@ sandboxOrchestrator:
   sandboxMemoryLimit:   "512Mi"
   seccompProfilePath:   "sandbox-seccomp.json"
   runAsUser:            65534
+  nodeSelectorKey:      workload
+  nodeSelectorValue:    sandbox
+  tolerationKey:        workload
+  tolerationValue:      sandbox
 
 botOrchestrator:
   numBots:         50
