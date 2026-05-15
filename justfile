@@ -29,7 +29,7 @@ helm-deploy:
     bash scripts/helm-deploy.sh
 
 helm-teardown:
-    helm uninstall iicpc-platform --namespace iicpc
+    helm uninstall iicpc-platform --namespace platform
 
 helm-package:
     helm package infra/helm/iicpc-platform/ --destination dist/
