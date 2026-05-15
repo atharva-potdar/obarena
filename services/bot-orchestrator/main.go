@@ -2,10 +2,15 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"log"
+	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
+	"syscall"
 )
 
 func envStr(key, def string) string {
@@ -22,6 +27,78 @@ func envInt(key string, def int) int {
 		}
 	}
 	return def
+}
+
+type Server struct {
+	orchestrator *Orchestrator
+	mu           sync.Mutex
+	isRunning    bool
+}
+
+func (s *Server) runHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	s.mu.Lock()
+	if s.isRunning {
+		s.mu.Unlock()
+		http.Error(w, "Test already in progress", http.StatusConflict)
+		return
+	}
+	s.isRunning = true
+	s.mu.Unlock()
+
+	var event SandboxReadyEvent
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&event)
+	}
+
+	// Default fallback if no body provided
+	if event.SubmissionID == "" {
+		event.SubmissionID = "manual-run"
+	}
+	if event.PodIP == "" {
+		event.PodIP = "submission-api.platform.svc.cluster.local"
+	}
+	if event.WSPort == 0 {
+		event.WSPort = 8080
+	}
+	if event.TeamName == "" {
+		event.TeamName = "manual-team"
+	}
+
+	go func() {
+		defer func() {
+			s.mu.Lock()
+			s.isRunning = false
+			s.mu.Unlock()
+		}()
+		s.orchestrator.Handle(context.Background(), event)
+	}()
+
+	w.WriteHeader(http.StatusAccepted)
+	w.Write([]byte(`{"status": "started"}`))
+}
+
+func (s *Server) statusHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	s.mu.Lock()
+	running := s.isRunning
+	s.mu.Unlock()
+
+	status := "idle"
+	if running {
+		status = "running"
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": status})
 }
 
 func main() {
@@ -59,6 +136,50 @@ func main() {
 	log.Printf("bot-orchestrator started | numBots=%d | duration=%ds | jobTimeout=%ds",
 		numBots, durationSec, jobTimeoutSec)
 
-	ctx := context.Background()
-	consumer.Run(ctx, orchestrator.Handle)
+	srv := &Server{orchestrator: orchestrator}
+	http.HandleFunc("/run", srv.runHandler)
+	http.HandleFunc("/status", srv.statusHandler)
+	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("ok"))
+	})
+
+	httpServer := &http.Server{Addr: ":8080"}
+
+	// Run HTTP server
+	go func() {
+		log.Println("HTTP server listening on :8080")
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("http server: %v", err)
+		}
+	}()
+
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+
+	// Use consumer as well, forwarding to the same orchestrator (guarded by state if needed)
+	go func() {
+		consumer.Run(ctx, func(c context.Context, e SandboxReadyEvent) {
+			srv.mu.Lock()
+			if srv.isRunning {
+				srv.mu.Unlock()
+				log.Printf("ignoring sandbox.ready for %s because test is already running", e.SubmissionID)
+				return
+			}
+			srv.isRunning = true
+			srv.mu.Unlock()
+
+			defer func() {
+				srv.mu.Lock()
+				srv.isRunning = false
+				srv.mu.Unlock()
+			}()
+			
+			orchestrator.Handle(c, e)
+		})
+	}()
+
+	<-ctx.Done()
+	log.Println("shutting down")
+	httpServer.Shutdown(context.Background())
 }

@@ -175,6 +175,9 @@ func (o *Orchestrator) deleteJob(ctx context.Context, jobName string) error {
 }
 
 func (o *Orchestrator) deleteSandboxPod(ctx context.Context, podName string) error {
+	if podName == "" {
+		return nil
+	}
 	return o.k8s.CoreV1().Pods("sandboxes").Delete(ctx, podName, metav1.DeleteOptions{})
 }
 
