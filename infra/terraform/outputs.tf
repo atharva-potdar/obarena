@@ -4,3 +4,10 @@ output "kubeconfig_command" {
 }
 
 # The registry_url and cluster_endpoint outputs will be populated when registry.tf and cluster.tf are added.
+
+data "aws_caller_identity" "current" {}
+
+output "registry_url" {
+  description = "Base URL for the ECR registry"
+  value       = "${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.region}.amazonaws.com"
+}
