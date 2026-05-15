@@ -28,7 +28,7 @@ Events handled: build.complete
    - Network ingress allowed only from `bots` namespace (NetworkPolicy)
    - Network egress denied (NetworkPolicy)
    - InitContainer downloads binary directly from SeaweedFS to an EmptyDir
-   - Exposes ports 8080 (HTTP) and 8081 (WebSocket)
+    - Exposes port 8080 (HTTP + WebSocket)
    - Guaranteed QoS (CPU and memory limits = requests)
 3. Wait for pod to reach Running phase and Ready condition (via native ReadinessProbe)
 4. On success:
@@ -46,7 +46,7 @@ Runtime:        gvisor (runsc)
 InitContainer:  alpine:3.23 (downloads binary via wget from SeaweedFS)
 Main Container: alpine:3.23 (executes the downloaded binary natively)
 Working dir:    /sandbox
-Ports:          8080 (HTTP), 8081 (WebSocket)
+Ports:          8080 (HTTP + WebSocket)
 Probes:         ReadinessProbe on HTTP 8080 /healthz
 
 Resource Limits (Guaranteed QoS):
@@ -72,7 +72,7 @@ sandbox.ready
   "pod_name":       "string",
   "pod_ip":         "10.42.x.x",
   "http_port":      8080,
-  "ws_port":        8081,
+  "ws_port":        8080,
   "team_name":      "string",
   "ready_at":       1234567890    // unix nanoseconds
 }

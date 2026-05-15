@@ -24,7 +24,6 @@ const (
 	binaryBucket     = "builds"
 	sandboxImage     = "alpine:3.23"
 	httpPort         = 8080
-	wsPort           = 8081
 )
 
 // DeployResult is returned on successful sandbox deployment.
@@ -195,7 +194,6 @@ func (o *Orchestrator) createSandboxPod(ctx context.Context, name string, binary
 					WorkingDir: "/sandbox",
 					Ports: []corev1.ContainerPort{
 						{Name: "http", ContainerPort: int32(httpPort)},
-						{Name: "ws", ContainerPort: int32(wsPort)},
 					},
 					VolumeMounts: []corev1.VolumeMount{
 						{Name: "sandbox", MountPath: "/sandbox"},
