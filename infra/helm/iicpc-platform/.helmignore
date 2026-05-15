@@ -1,0 +1,5 @@
+# Patterns to ignore when building packages.
+*.md
+.git/
+values-prod.yaml
+*.tgz

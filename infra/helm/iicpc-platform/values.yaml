@@ -1,0 +1,92 @@
+image:
+  registry: "" # Default local/empty; populated by values-prod.yaml
+  tag: dev
+  pullPolicy: IfNotPresent
+
+thirdParty:
+  redis:       { image: "redis:8-alpine" }
+  redpanda:    { image: "docker.redpanda.com/redpandadata/redpanda:v26.1.7" }
+  timescaledb: { image: "timescale/timescaledb:latest-pg18" }
+  seaweedfs:   { image: "chrislusf/seaweedfs:latest" }
+
+timescaledb:
+  password: iicpc # Override via --set during deploy
+
+redis:
+  password: redispass # Override via --set during deploy
+
+redpanda:
+  devMode: true
+
+nodeSelector:
+  platform: { workload: platform }
+  sandbox:  { workload: sandbox }
+  bots:     { workload: bots }
+
+tolerations:
+  platform:
+    - key: workload
+      operator: Equal
+      value: platform
+      effect: NoSchedule
+  sandbox:
+    - key: workload
+      operator: Equal
+      value: sandbox
+      effect: NoSchedule
+  bots:
+    - key: workload
+      operator: Equal
+      value: bots
+      effect: NoSchedule
+
+sandboxOrchestrator:
+  sandboxCpuRequest:    "2"
+  sandboxCpuLimit:      "2"
+  sandboxMemoryRequest: "512Mi"
+  sandboxMemoryLimit:   "512Mi"
+  seccompProfilePath:   "sandbox-seccomp.json"
+  runAsUser:            65534
+
+botOrchestrator:
+  numBots:         50
+  durationSeconds: 60
+
+resources:
+  submissionApi:
+    requests: { cpu: 100m, memory: 64Mi }
+    limits:   { cpu: 250m, memory: 128Mi }
+  buildService:
+    requests: { cpu: 500m, memory: 512Mi }
+    limits:   { cpu: 1000m, memory: 1024Mi }
+  sandboxOrchestrator:
+    requests: { cpu: 250m, memory: 128Mi }
+    limits:   { cpu: 500m, memory: 256Mi }
+  telemetryIngester:
+    requests: { cpu: 200m, memory: 128Mi }
+    limits:   { cpu: 500m, memory: 256Mi }
+  leaderboardWs:
+    requests: { cpu: 100m, memory: 64Mi }
+    limits:   { cpu: 250m, memory: 128Mi }
+  botOrchestrator:
+    requests: { cpu: 100m, memory: 64Mi }
+    limits:   { cpu: 250m, memory: 128Mi }
+
+hpa:
+  enabled: true
+  submissionApi:       { minReplicas: 2, maxReplicas: 10, cpuTarget: 70 }
+  buildService:        { minReplicas: 1, maxReplicas: 8,  cpuTarget: 60 }
+  sandboxOrchestrator: { minReplicas: 1, maxReplicas: 6,  cpuTarget: 60 }
+  telemetryIngester:   { minReplicas: 1, maxReplicas: 4,  cpuTarget: 70 }
+  leaderboardWs:       { minReplicas: 2, maxReplicas: 6,  cpuTarget: 70 }
+
+ingress:
+  enabled: true
+  className: nginx
+  host: iicpc.example.com
+
+storage:
+  className: "" # Empty means cluster default
+  seaweedfs:      { size: 10Gi }
+  timescaledb:    { size: 10Gi }
+  buildArtifacts: { size: 10Gi }

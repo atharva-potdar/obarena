@@ -1,0 +1,33 @@
+image:
+  registry: "REPLACE_ME_REGISTRY_URL" # Replaced dynamically or via template, typically CI handles this or script
+  # pullPolicy stays IfNotPresent because immutable git SHA tags don't need re-pulling
+
+ingress:
+  className: nginx
+  host: iicpc-platform.local # Update to actual domain for prod
+
+storage:
+  className: "gp3" # Standard for AWS EKS
+
+redpanda:
+  devMode: false # Turn off dev flags for more robust redpanda behavior
+
+resources:
+  submissionApi:
+    requests: { cpu: 200m, memory: 128Mi }
+    limits:   { cpu: 500m, memory: 256Mi }
+  buildService:
+    requests: { cpu: 1000m, memory: 1024Mi }
+    limits:   { cpu: 2000m, memory: 2048Mi }
+  sandboxOrchestrator:
+    requests: { cpu: 500m, memory: 256Mi }
+    limits:   { cpu: 1000m, memory: 512Mi }
+  telemetryIngester:
+    requests: { cpu: 500m, memory: 256Mi }
+    limits:   { cpu: 1000m, memory: 512Mi }
+  leaderboardWs:
+    requests: { cpu: 200m, memory: 128Mi }
+    limits:   { cpu: 500m, memory: 256Mi }
+
+hpa:
+  enabled: true

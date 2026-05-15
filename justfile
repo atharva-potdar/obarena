@@ -4,6 +4,36 @@ default: dev-up
 
 dev-up: cluster-init build prefetch infra-up smoke-test
 
+tf-init:
+    terraform -chdir=infra/terraform init
+
+tf-plan:
+    terraform -chdir=infra/terraform plan
+
+tf-up:
+    bash scripts/tf-up.sh
+
+tf-destroy:
+    terraform -chdir=infra/terraform destroy
+
+bootstrap:
+    bash scripts/bootstrap-tf-state.sh
+
+push:
+    bash scripts/push-images.sh
+
+helm-lint:
+    helm lint infra/helm/iicpc-platform/
+
+helm-deploy:
+    bash scripts/helm-deploy.sh
+
+helm-teardown:
+    helm uninstall iicpc-platform --namespace iicpc
+
+helm-package:
+    helm package infra/helm/iicpc-platform/ --destination dist/
+
 build:
     DOCKER_BUILDKIT=1 docker build -t submission-api:dev -f services/submission-api/Dockerfile .
     DOCKER_BUILDKIT=1 docker build -t build-service:dev -f services/build-service/Dockerfile .

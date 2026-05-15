@@ -1,0 +1,13 @@
+IICPC Platform has been successfully deployed!
+
+Platform Endpoints:
+- Submission API: http://{{ .Values.ingress.host }}/
+- Leaderboard WS: ws://{{ .Values.ingress.host }}/leaderboard/ws
+
+To trigger a test run via bot-orchestrator:
+  curl -X POST http://bot-orchestrator.platform.svc.cluster.local:8080/run
+  
+(If executing externally, port-forward the bot-orchestrator service first)
+
+To check Horizontal Pod Autoscaler status:
+  kubectl get hpa -n platform
