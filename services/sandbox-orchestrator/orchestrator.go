@@ -33,18 +33,32 @@ type DeployResult struct {
 	PodIP   string
 }
 
+type SandboxConfig struct {
+	Timeout       time.Duration
+	MaxLogBytes   int
+	CpuRequest    string
+	CpuLimit      string
+	MemoryRequest string
+	MemoryLimit   string
+	SeccompProfile string
+	RunAsUser     int64
+	NodeSelectorK string
+	NodeSelectorV string
+	TolerationK   string
+	TolerationV   string
+}
+
 type Orchestrator struct {
 	seaweedfsEndpoint string
 	s3Client       *s3.Client
 	k8sClient      kubernetes.Interface
 	restConfig     *rest.Config
-	timeout        time.Duration
-	maxLogBytes    int
+	cfg            SandboxConfig
 }
 
-func NewOrchestrator(seaweedfsEndpoint string, timeoutSec, maxLogBytes int) (*Orchestrator, error) {
+func NewOrchestrator(seaweedfsEndpoint string, cfg SandboxConfig) (*Orchestrator, error) {
 	// S3 client for SeaweedFS
-	cfg, err := config.LoadDefaultConfig(
+	awsCfg, err := config.LoadDefaultConfig(
 		context.Background(),
 		config.WithRegion("us-east-1"),
 		config.WithCredentialsProvider(
@@ -54,7 +68,7 @@ func NewOrchestrator(seaweedfsEndpoint string, timeoutSec, maxLogBytes int) (*Or
 	if err != nil {
 		return nil, fmt.Errorf("load aws config: %w", err)
 	}
-	s3Client := s3.NewFromConfig(cfg, func(o *s3.Options) {
+	s3Client := s3.NewFromConfig(awsCfg, func(o *s3.Options) {
 		o.BaseEndpoint = aws.String(seaweedfsEndpoint)
 		o.UsePathStyle = true
 	})
@@ -74,8 +88,7 @@ func NewOrchestrator(seaweedfsEndpoint string, timeoutSec, maxLogBytes int) (*Or
 		s3Client:       s3Client,
 		k8sClient:      k8s,
 		restConfig:     restCfg,
-		timeout:        time.Duration(timeoutSec) * time.Second,
-		maxLogBytes:    maxLogBytes,
+		cfg:            cfg,
 	}, nil
 }
 
@@ -86,7 +99,7 @@ func NewOrchestrator(seaweedfsEndpoint string, timeoutSec, maxLogBytes int) (*Or
 //  4. Wait for pod to become Running and Ready
 //  5. Return pod info on success, cleanup on failure
 func (o *Orchestrator) Deploy(ctx context.Context, event BuildCompleteEvent) (*DeployResult, error) {
-	ctx, cancel := context.WithTimeout(ctx, o.timeout)
+	ctx, cancel := context.WithTimeout(ctx, o.cfg.Timeout)
 	defer cancel()
 
 	// 1. Create sandbox pod
@@ -108,8 +121,8 @@ func (o *Orchestrator) Deploy(ctx context.Context, event BuildCompleteEvent) (*D
 	if err := o.waitForPodRunning(ctx, pod.Name); err != nil {
 		logs := o.collectPodLogs(context.Background(), podName)
 		reason := fmt.Sprintf("wait for pod failed: %v\n\npod logs:\n%s", err, logs)
-		if len(reason) > o.maxLogBytes {
-			reason = reason[:o.maxLogBytes]
+		if len(reason) > o.cfg.MaxLogBytes {
+			reason = reason[:o.cfg.MaxLogBytes]
 		}
 		return nil, fmt.Errorf("%s", reason)
 	}
@@ -134,7 +147,6 @@ func (o *Orchestrator) Deploy(ctx context.Context, event BuildCompleteEvent) (*D
 
 func (o *Orchestrator) createSandboxPod(ctx context.Context, name string, binaryPath string) (*corev1.Pod, error) {
 	automount := false
-	gvisorRuntime := "gvisor"
 	binaryUrl := fmt.Sprintf("%s/%s/%s", o.seaweedfsEndpoint, binaryBucket, binaryPath)
 
 	pod := &corev1.Pod{
@@ -145,11 +157,24 @@ func (o *Orchestrator) createSandboxPod(ctx context.Context, name string, binary
 				"app":  "sandbox",
 				"role": "contestant-submission",
 			},
+			Annotations: map[string]string{
+				"container.apparmor.security.beta.kubernetes.io/sandbox": "runtime/default",
+			},
 		},
 		Spec: corev1.PodSpec{
-			RuntimeClassName:             &gvisorRuntime,
 			AutomountServiceAccountToken: &automount,
 			RestartPolicy:                corev1.RestartPolicyNever,
+			NodeSelector: map[string]string{
+				o.cfg.NodeSelectorK: o.cfg.NodeSelectorV,
+			},
+			Tolerations: []corev1.Toleration{
+				{
+					Key:      o.cfg.TolerationK,
+					Operator: corev1.TolerationOpEqual,
+					Value:    o.cfg.TolerationV,
+					Effect:   corev1.TaintEffectNoSchedule,
+				},
+			},
 			InitContainers: []corev1.Container{
 				{
 					Name:    "init-download",
@@ -157,6 +182,11 @@ func (o *Orchestrator) createSandboxPod(ctx context.Context, name string, binary
 					Command: []string{"sh", "-c", fmt.Sprintf("wget -qO /sandbox/binary %s && chmod +x /sandbox/binary", binaryUrl)},
 					VolumeMounts: []corev1.VolumeMount{
 						{Name: "sandbox", MountPath: "/sandbox"},
+					},
+					SecurityContext: &corev1.SecurityContext{
+						RunAsUser:                &o.cfg.RunAsUser,
+						RunAsNonRoot:             boolPtr(true),
+						AllowPrivilegeEscalation: boolPtr(false),
 					},
 				},
 			},
@@ -172,6 +202,20 @@ func (o *Orchestrator) createSandboxPod(ctx context.Context, name string, binary
 					},
 					VolumeMounts: []corev1.VolumeMount{
 						{Name: "sandbox", MountPath: "/sandbox"},
+						{Name: "tmp", MountPath: "/tmp"},
+					},
+					SecurityContext: &corev1.SecurityContext{
+						RunAsUser:                &o.cfg.RunAsUser,
+						RunAsNonRoot:             boolPtr(true),
+						AllowPrivilegeEscalation: boolPtr(false),
+						ReadOnlyRootFilesystem:   boolPtr(true),
+						Capabilities: &corev1.Capabilities{
+							Drop: []corev1.Capability{"ALL"},
+						},
+						SeccompProfile: &corev1.SeccompProfile{
+							Type:             corev1.SeccompProfileTypeLocalhost,
+							LocalhostProfile: &o.cfg.SeccompProfile,
+						},
 					},
 					ReadinessProbe: &corev1.Probe{
 						ProbeHandler: corev1.ProbeHandler{
@@ -186,12 +230,12 @@ func (o *Orchestrator) createSandboxPod(ctx context.Context, name string, binary
 					},
 					Resources: corev1.ResourceRequirements{
 						Limits: corev1.ResourceList{
-							corev1.ResourceCPU:    resource.MustParse("2"),
-							corev1.ResourceMemory: resource.MustParse("1Gi"),
+							corev1.ResourceCPU:    resource.MustParse(o.cfg.CpuLimit),
+							corev1.ResourceMemory: resource.MustParse(o.cfg.MemoryLimit),
 						},
 						Requests: corev1.ResourceList{
-							corev1.ResourceCPU:    resource.MustParse("2"),
-							corev1.ResourceMemory: resource.MustParse("1Gi"),
+							corev1.ResourceCPU:    resource.MustParse(o.cfg.CpuRequest),
+							corev1.ResourceMemory: resource.MustParse(o.cfg.MemoryRequest),
 						},
 					},
 				},
@@ -203,6 +247,12 @@ func (o *Orchestrator) createSandboxPod(ctx context.Context, name string, binary
 						EmptyDir: &corev1.EmptyDirVolumeSource{
 							SizeLimit: resourcePtr(resource.MustParse("256Mi")),
 						},
+					},
+				},
+				{
+					Name: "tmp",
+					VolumeSource: corev1.VolumeSource{
+						EmptyDir: &corev1.EmptyDirVolumeSource{},
 					},
 				},
 			},
@@ -258,7 +308,7 @@ func (o *Orchestrator) collectPodLogs(ctx context.Context, podName string) strin
 	}
 	defer stream.Close()
 
-	data, err := io.ReadAll(io.LimitReader(stream, int64(o.maxLogBytes)))
+	data, err := io.ReadAll(io.LimitReader(stream, int64(o.cfg.MaxLogBytes)))
 	if err != nil {
 		return fmt.Sprintf("(failed to read logs: %v)", err)
 	}
@@ -273,4 +323,8 @@ func (o *Orchestrator) cleanupPod(ctx context.Context, name string) {
 
 func resourcePtr(q resource.Quantity) *resource.Quantity {
 	return &q
+}
+
+func boolPtr(b bool) *bool {
+	return &b
 }
