@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: submission-api
+  namespace: platform
+  labels:
+    {{- include "iicpc.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: submission-api
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
