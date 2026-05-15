@@ -53,7 +53,7 @@ resource "aws_subnet" "private" {
 # NAT Gateway for private subnets (Single NAT for cost optimization in hackathon context)
 resource "aws_eip" "nat" {
   domain = "vpc"
-  
+
   tags = {
     Name = "${var.cluster_name}-eip-nat"
   }
