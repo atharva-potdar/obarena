@@ -2,7 +2,7 @@ export KUBECONFIG := "/etc/rancher/k3s/k3s.yaml"
 
 default: dev-up
 
-dev-up: cluster-init build prefetch infra-up smoke-test
+dev-up: build prefetch infra-up smoke-test
 
 tf-init:
     terraform -chdir=infra/terraform init
@@ -61,9 +61,6 @@ prefetch:
     sudo k3s crictl pull docker.io/library/golang:1.26-alpine
     sudo k3s crictl pull docker.io/library/alpine:3.23
 
-cluster-init:
-    bash scripts/cluster-init.sh
-
 infra-up:
     bash scripts/infra-up.sh
 
@@ -71,9 +68,7 @@ smoke-test:
     bash scripts/smoke-test.sh
 
 dev-teardown:
-    kubectl delete -f infra/k8s/platform/ || true
-    kubectl delete -f infra/k8s/rbac.yaml || true
-    kubectl delete -f infra/k8s/network-policies.yaml || true
+    helm uninstall iicpc-platform --namespace platform || true
     kubectl delete namespace platform builds sandboxes bots || true
 
 clean-cache:

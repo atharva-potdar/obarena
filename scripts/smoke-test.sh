@@ -30,38 +30,18 @@ check "bots restrict-egress" kubectl get networkpolicy restrict-egress -n bots
 
 echo "RBAC"
 check "sandbox-orchestrator SA" kubectl get serviceaccount sandbox-orchestrator -n platform
-check "runtimeclass-reader" kubectl get clusterrole runtimeclass-reader
-
-echo "gVisor"
-kubectl delete pod gvisor-smoke --ignore-not-found &>/dev/null
-kubectl run gvisor-smoke \
-  --image=alpine:3.23 \
-  --restart=Never \
-  --overrides='{"spec":{"runtimeClassName":"gvisor"}}' \
-  -- uname -r &>/dev/null
-kubectl wait --for=jsonpath='{.status.phase}'=Succeeded \
-  pod/gvisor-smoke --timeout=120s &>/dev/null
-KERNEL=$(kubectl logs gvisor-smoke 2>/dev/null)
-kubectl delete pod gvisor-smoke --ignore-not-found &>/dev/null
-if echo "$KERNEL" | grep -q gvisor; then
-  echo "  [PASS] gVisor kernel: $KERNEL"
-  PASS=$((PASS + 1))
-else
-  echo "  [FAIL] gVisor returned unexpected kernel: $KERNEL"
-  FAIL=$((FAIL + 1))
-fi
 
 echo "Infra services"
 check "Redpanda running" kubectl get pod -n platform -l app.kubernetes.io/name=redpanda --field-selector=status.phase=Running
-check "TimescaleDB running" kubectl get pod -n platform -l app=timescaledb --field-selector=status.phase=Running
+check "TimescaleDB running" kubectl get pod -n platform -l app.kubernetes.io/name=timescaledb --field-selector=status.phase=Running
 check "Redis running" kubectl get pod -n platform -l app.kubernetes.io/name=redis --field-selector=status.phase=Running
-check "SeaweedFS running" kubectl get pod -n platform -l app=seaweedfs --field-selector=status.phase=Running
-check "submission-api running" kubectl get pod -n platform -l app=submission-api --field-selector=status.phase=Running
-check "build-service running" kubectl get pod -n platform -l app=build-service --field-selector=status.phase=Running
-check "sandbox-orchestrator running" kubectl get pod -n platform -l app=sandbox-orchestrator --field-selector=status.phase=Running
-check "bot-orchestrator running" kubectl get pod -n platform -l app=bot-orchestrator --field-selector=status.phase=Running
-check "telemetry-ingester running" kubectl get pod -n platform -l app=telemetry-ingester --field-selector=status.phase=Running
-check "leaderboard-ws running" kubectl get pod -n platform -l app=leaderboard-ws --field-selector=status.phase=Running
+check "SeaweedFS running" kubectl get pod -n platform -l app.kubernetes.io/name=seaweedfs --field-selector=status.phase=Running
+check "submission-api running" kubectl get pod -n platform -l app.kubernetes.io/name=submission-api --field-selector=status.phase=Running
+check "build-service running" kubectl get pod -n platform -l app.kubernetes.io/name=build-service --field-selector=status.phase=Running
+check "sandbox-orchestrator running" kubectl get pod -n platform -l app.kubernetes.io/name=sandbox-orchestrator --field-selector=status.phase=Running
+check "bot-orchestrator running" kubectl get pod -n platform -l app.kubernetes.io/name=bot-orchestrator --field-selector=status.phase=Running
+check "telemetry-ingester running" kubectl get pod -n platform -l app.kubernetes.io/name=telemetry-ingester --field-selector=status.phase=Running
+check "leaderboard-ws running" kubectl get pod -n platform -l app.kubernetes.io/name=leaderboard-ws --field-selector=status.phase=Running
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

@@ -92,7 +92,7 @@ func NewOrchestrator(seaweedfsEndpoint string, cfg SandboxConfig) (*Orchestrator
 }
 
 // Deploy runs the full sandbox deployment lifecycle for a submission:
-//  1. Create a sandbox pod (gVisor) with an InitContainer
+//  1. Create a sandbox pod with an InitContainer
 //  2. InitContainer downloads binary from SeaweedFS
 //  3. Main container executes the binary directly
 //  4. Wait for pod to become Running and Ready
