@@ -8,4 +8,5 @@ RUN go build -o sandbox-orchestrator ./services/sandbox-orchestrator/
 FROM alpine:3.23
 WORKDIR /app
 COPY --from=builder /app/sandbox-orchestrator .
+USER 65534
 CMD ["./sandbox-orchestrator"]

@@ -20,7 +20,7 @@ type BotMetrics struct {
 	acksRecv    int64
 	fillsRecv   int64
 	rejectsRecv int64
-	connDrops   int64
+	staleOrders int64
 }
 
 func NewBotMetrics() *BotMetrics {
@@ -47,7 +47,7 @@ type AggregateMetrics struct {
 	acksRecv    int64
 	fillsRecv   int64
 	rejectsRecv int64
-	connDrops   int64
+	staleOrders int64
 	ackDropped  int64
 	fillDropped int64
 }
@@ -64,7 +64,7 @@ func merge(bots []*BotMetrics) *AggregateMetrics {
 		agg.acksRecv += b.acksRecv
 		agg.fillsRecv += b.fillsRecv
 		agg.rejectsRecv += b.rejectsRecv
-		agg.connDrops += b.connDrops
+		agg.staleOrders += b.staleOrders
 	}
 	return agg
 }
@@ -75,9 +75,9 @@ func report(agg *AggregateMetrics, duration time.Duration) {
 	fmt.Printf("Duration:      %s\n", duration.Round(time.Millisecond))
 	fmt.Printf("Orders sent:   %d (%.0f TPS)\n", agg.ordersSent, tps)
 	fmt.Printf("Acks received: %d\n", agg.acksRecv)
-	fmt.Printf("Fills received:%d\n", agg.fillsRecv)
+	fmt.Printf("Fills received: %d\n", agg.fillsRecv)
 	fmt.Printf("Rejects:       %d\n", agg.rejectsRecv)
-	fmt.Printf("Conn drops:    %d\n", agg.connDrops)
+	fmt.Printf("Stale orders:  %d\n", agg.staleOrders)
 	fmt.Printf("Hist dropped:  ack=%d fill=%d\n", agg.ackDropped, agg.fillDropped)
 	fmt.Println()
 	fmt.Println("--- Ack Latency (µs) ---")

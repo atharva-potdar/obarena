@@ -8,4 +8,5 @@ RUN go build -o telemetry-ingester ./services/telemetry-ingester/
 FROM alpine:3.23
 WORKDIR /app
 COPY --from=builder /app/telemetry-ingester .
+USER 65534
 CMD ["./telemetry-ingester"]

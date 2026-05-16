@@ -56,6 +56,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("init orchestrator: %v", err)
 	}
+	defer orchestrator.Close()
 
 	consumer, err := NewConsumer(redpandaBrokers, orchestrator, publisher)
 	if err != nil {

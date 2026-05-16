@@ -54,6 +54,11 @@ func (s *Server) runHandler(w http.ResponseWriter, r *http.Request) {
 
 	var event SandboxReadyEvent
 	if r.Body != nil {
+		defer func() {
+			if err := r.Body.Close(); err != nil {
+				log.Printf("runHandler body close error: %v", err)
+			}
+		}()
 		_ = json.NewDecoder(r.Body).Decode(&event)
 	}
 

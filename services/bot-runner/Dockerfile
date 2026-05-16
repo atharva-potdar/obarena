@@ -8,4 +8,5 @@ RUN go build -o bot-runner ./services/bot-runner/
 FROM alpine:3.23
 WORKDIR /app
 COPY --from=builder /app/bot-runner .
+USER 65534
 CMD ["./bot-runner"]

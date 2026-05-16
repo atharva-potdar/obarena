@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -26,7 +27,7 @@ func envInt(key string, def int) int {
 	return def
 }
 
-func main() {
+func run() error {
 	seaweedfsEndpoint := envStr("SEAWEEDFS_ENDPOINT", "http://seaweedfs.platform.svc.cluster.local:8333")
 	redpandaBrokers := strings.Split(envStr("REDPANDA_BROKERS", "redpanda.platform.svc.cluster.local:9092"), ",")
 	buildTimeout := envInt("BUILD_TIMEOUT_SECONDS", 120)
@@ -34,18 +35,18 @@ func main() {
 
 	publisher, err := NewPublisher(redpandaBrokers)
 	if err != nil {
-		log.Fatalf("init publisher: %v", err)
+		return fmt.Errorf("init publisher: %v", err)
 	}
 	defer publisher.Close()
 
 	builder, err := NewBuilder(seaweedfsEndpoint, buildTimeout, maxLogBytes)
 	if err != nil {
-		log.Fatalf("init builder: %v", err)
+		return fmt.Errorf("init builder: %v", err)
 	}
 
 	consumer, err := NewConsumer(redpandaBrokers, builder, publisher)
 	if err != nil {
-		log.Fatalf("init consumer: %v", err)
+		return fmt.Errorf("init consumer: %v", err)
 	}
 	defer consumer.Close()
 
@@ -54,10 +55,15 @@ func main() {
 
 	log.Println("build-service starting")
 	if err := consumer.Run(ctx); err != nil {
-		log.Printf("consumer error: %v", err)
-		if ctx.Err() == nil {
-			os.Exit(1)
-		}
+		return fmt.Errorf("consumer: %v", err)
 	}
 	log.Println("build-service stopped")
+
+	return nil
+}
+
+func main() {
+	if err := run(); err != nil {
+		log.Fatalf("fatal: %v", err)
+	}
 }

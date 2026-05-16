@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io/fs"
 	"log"
 	"net/http"
@@ -39,7 +40,7 @@ type leaderboardEntry struct {
 	Rank         int     `json:"rank"`
 }
 
-func main() {
+func run() error {
 	redisAddr := envStr("REDIS_ADDR", "redis.platform.svc.cluster.local:6379")
 	redisPass := envStr("REDIS_PASSWORD", "")
 	port := envStr("PORT", "8090")
@@ -78,7 +79,7 @@ func main() {
 	// that index.html is served at "/" rather than "/static/index.html".
 	frontend, err := fs.Sub(staticFS, "static")
 	if err != nil {
-		log.Fatalf("fs.Sub: %v", err)
+		return fmt.Errorf("fs.Sub: %v", err)
 	}
 	mux.Handle("GET /", http.FileServer(http.FS(frontend)))
 
@@ -88,7 +89,7 @@ func main() {
 
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("http server: %v", err)
+			log.Printf("http server: %v", err)
 		}
 	}()
 
@@ -100,7 +101,15 @@ func main() {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer shutdownCancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		log.Printf("http server shutdown error: %v", err)
+		return fmt.Errorf("http server shutdown: %v", err)
+	}
+
+	return nil
+}
+
+func main() {
+	if err := run(); err != nil {
+		log.Fatalf("fatal: %v", err)
 	}
 }
 

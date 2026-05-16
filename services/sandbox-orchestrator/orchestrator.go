@@ -211,14 +211,14 @@ func (o *Orchestrator) createSandboxPod(ctx context.Context, name string, binary
 						Capabilities: &corev1.Capabilities{
 							Drop: []corev1.Capability{"ALL"},
 						},
-					SeccompProfile: &corev1.SeccompProfile{
-						Type:             corev1.SeccompProfileTypeLocalhost,
-						LocalhostProfile: &o.cfg.SeccompProfile,
+						SeccompProfile: &corev1.SeccompProfile{
+							Type:             corev1.SeccompProfileTypeLocalhost,
+							LocalhostProfile: &o.cfg.SeccompProfile,
+						},
+						AppArmorProfile: &corev1.AppArmorProfile{
+							Type: corev1.AppArmorProfileTypeRuntimeDefault,
+						},
 					},
-					AppArmorProfile: &corev1.AppArmorProfile{
-						Type: corev1.AppArmorProfileTypeRuntimeDefault,
-					},
-				},
 					ReadinessProbe: &corev1.Probe{
 						ProbeHandler: corev1.ProbeHandler{
 							HTTPGet: &corev1.HTTPGetAction{
@@ -325,6 +325,11 @@ func (o *Orchestrator) cleanupPod(ctx context.Context, name string) {
 	if err := o.k8sClient.CoreV1().Pods(sandboxNamespace).Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
 		log.Printf("cleanup pod %s: %v", name, err)
 	}
+}
+
+func (o *Orchestrator) Close() {
+	// S3 client has no explicit Close method; k8s client is stateless.
+	// Reserved for future resource cleanup needs.
 }
 
 func resourcePtr(q resource.Quantity) *resource.Quantity {

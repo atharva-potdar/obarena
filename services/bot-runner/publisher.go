@@ -20,7 +20,7 @@ type BotMetricsEvent struct {
 	AcksRecv         int64   `json:"acks_recv"`
 	FillsRecv        int64   `json:"fills_recv"`
 	RejectsRecv      int64   `json:"rejects_recv"`
-	ConnDrops        int64   `json:"conn_drops"`
+	StaleOrders      int64   `json:"stale_orders"`
 	AckP50US         int64   `json:"ack_p50_us"`
 	AckP90US         int64   `json:"ack_p90_us"`
 	AckP99US         int64   `json:"ack_p99_us"`
@@ -53,7 +53,7 @@ func publishMetrics(client *kgo.Client, agg *AggregateMetrics, duration time.Dur
 		AcksRecv:         agg.acksRecv,
 		FillsRecv:        agg.fillsRecv,
 		RejectsRecv:      agg.rejectsRecv,
-		ConnDrops:        agg.connDrops,
+		StaleOrders:      agg.staleOrders,
 		AckP50US:         agg.ackLatency.ValueAtQuantile(50),
 		AckP90US:         agg.ackLatency.ValueAtQuantile(90),
 		AckP99US:         agg.ackLatency.ValueAtQuantile(99),

@@ -165,7 +165,7 @@ func (b *Bot) Run(ctx context.Context, duration time.Duration, ready chan<- stru
 					if now.Sub(order.sentAt) > 5*time.Second {
 						delete(pending, id)
 						inFlight.Add(-1)
-						b.metrics.connDrops++
+						b.metrics.staleOrders++
 					}
 				}
 				mu.Unlock()
@@ -186,7 +186,7 @@ func (b *Bot) Run(ctx context.Context, duration time.Duration, ready chan<- stru
 		case err := <-errCh:
 			log.Printf("bot %d read error: %v", b.id, err)
 			mu.Lock()
-			b.metrics.connDrops++
+			b.metrics.staleOrders++
 			mu.Unlock()
 			return
 		default:
@@ -224,7 +224,7 @@ func (b *Bot) Run(ctx context.Context, duration time.Duration, ready chan<- stru
 			if err := conn.Write(ctx, websocket.MessageText, payload); err != nil {
 				log.Printf("bot %d write error: %v", b.id, err)
 				mu.Lock()
-				b.metrics.connDrops++
+				b.metrics.staleOrders++
 				mu.Unlock()
 				return
 			}
