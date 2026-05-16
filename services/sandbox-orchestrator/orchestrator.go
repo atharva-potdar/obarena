@@ -14,6 +14,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -270,7 +271,7 @@ func (o *Orchestrator) createSandboxPod(ctx context.Context, name string, binary
 
 func (o *Orchestrator) waitForPodRunning(ctx context.Context, name string) error {
 	watcher, err := o.k8sClient.CoreV1().Pods(sandboxNamespace).Watch(ctx, metav1.ListOptions{
-		FieldSelector: fmt.Sprintf("metadata.name=%s", name),
+		FieldSelector: fields.OneTermEqualSelector("metadata.name", name).String(),
 	})
 	if err != nil {
 		return fmt.Errorf("watch pod: %w", err)
@@ -322,7 +323,10 @@ func (o *Orchestrator) collectPodLogs(ctx context.Context, podName string) strin
 }
 
 func (o *Orchestrator) cleanupPod(ctx context.Context, name string) {
-	if err := o.k8sClient.CoreV1().Pods(sandboxNamespace).Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
+	gracePeriod := int64(5)
+	if err := o.k8sClient.CoreV1().Pods(sandboxNamespace).Delete(ctx, name, metav1.DeleteOptions{
+		GracePeriodSeconds: &gracePeriod,
+	}); err != nil {
 		slog.Error("cleanup pod", "pod", name, "error", err)
 	}
 }
