@@ -50,7 +50,7 @@ resource "aws_subnet" "private" {
   }
 }
 
-# NAT Gateway for private subnets (Single NAT for cost optimization in hackathon context)
+# NAT Gateway for private subnets (Single NAT for cost optimization in development context)
 resource "aws_eip" "nat" {
   domain = "vpc"
 

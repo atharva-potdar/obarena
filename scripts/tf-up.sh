@@ -32,7 +32,7 @@ echo "Installing Cluster Autoscaler..."
 # We use the AWS EKS Cluster Autoscaler chart
 helm repo add autoscaler https://kubernetes.github.io/autoscaler || true
 helm repo update autoscaler
-CLUSTER_NAME=$(terraform -chdir=infra/terraform output -raw cluster_name || echo "iicpc-platform")
+CLUSTER_NAME=$(terraform -chdir=infra/terraform output -raw cluster_name || echo "obarena-platform")
 REGION=$(terraform -chdir=infra/terraform output -raw region || echo "us-east-1")
 
 helm upgrade --install cluster-autoscaler autoscaler/cluster-autoscaler \

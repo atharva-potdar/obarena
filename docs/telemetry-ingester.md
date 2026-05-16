@@ -63,7 +63,7 @@ None. This service has no HTTP server.
 | Env Var | Default | Description |
 |---------|---------|-------------|
 | `REDPANDA_BROKERS` | `redpanda.platform.svc.cluster.local:9092` | Comma-separated broker list |
-| `TIMESCALEDB_DSN` | `postgres://<user>:<password>@timescaledb.platform.svc.cluster.local:5432/iicpc` | PostgreSQL connection string |
+| `TIMESCALEDB_DSN` | `postgres://<user>:<password>@timescaledb.platform.svc.cluster.local:5432/obarena` | PostgreSQL connection string |
 | `REDIS_ADDR` | `redis.platform.svc.cluster.local:6379` | Redis address |
 | `REDIS_PASSWORD` | *(empty)* | Redis password |
 | `MAX_LATENCY_US` | `50000.0` | Latency ceiling for scoring (microseconds) |
@@ -131,7 +131,7 @@ Clamped to [0, 1]. Derived from the two-phase correctness validation run by bot-
 
 - `log.Fatal` used directly in `main()` instead of `run()` helper pattern
 - `log.Printf` used instead of `slog` structured logging
-- `TIMESCALEDB_DSN` default contains plaintext password `iicpc` — should use placeholder format and rely on Helm-managed secrets
+- `TIMESCALEDB_DSN` default contains plaintext password `obarena` — should use placeholder format and rely on Helm-managed secrets
 - No graceful shutdown — `context.Background()` used for consumer run, no signal handling
 - Redis ZADD member format `"{submission_id}:{team_name}"` causes collisions on team rename (BUG.md #108)
 - Consumer group offset is not explicitly committed — relies on franz-go auto-commit

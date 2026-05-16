@@ -23,16 +23,16 @@ push:
     bash scripts/push-images.sh
 
 helm-lint:
-    helm lint infra/helm/iicpc-platform/
+    helm lint infra/helm/obarena-platform/
 
 helm-deploy:
     bash scripts/helm-deploy.sh
 
 helm-teardown:
-    helm uninstall iicpc-platform --namespace platform
+    helm uninstall obarena-platform --namespace platform
 
 helm-package:
-    helm package infra/helm/iicpc-platform/ --destination dist/
+    helm package infra/helm/obarena-platform/ --destination dist/
 
 build:
     DOCKER_BUILDKIT=1 docker build -t submission-api:dev -f services/submission-api/Dockerfile .
@@ -68,7 +68,7 @@ smoke-test:
     bash scripts/smoke-test.sh
 
 dev-teardown:
-    helm uninstall iicpc-platform --namespace platform || true
+    helm uninstall obarena-platform --namespace platform || true
     kubectl delete namespace platform builds sandboxes bots || true
 
 clean-cache:

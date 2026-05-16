@@ -5,8 +5,8 @@ set -euo pipefail
 # It should only be run ONCE per AWS account.
 
 REGION="us-east-1"
-BUCKET_NAME="iicpc-tf-state"
-TABLE_NAME="iicpc-tf-locks"
+BUCKET_NAME="obarena-tf-state"
+TABLE_NAME="obarena-tf-locks"
 
 echo "Creating S3 bucket $BUCKET_NAME in $REGION..."
 aws s3api create-bucket --bucket "$BUCKET_NAME" --region "$REGION"

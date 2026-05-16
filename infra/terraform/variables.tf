@@ -5,7 +5,7 @@ variable "region" {
 
 variable "cluster_name" {
   description = "Name of the EKS cluster"
-  default     = "iicpc-platform"
+  default     = "obarena-platform"
 }
 
 variable "k8s_version" {

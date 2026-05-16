@@ -1,6 +1,6 @@
 # Architecture
 
-System-level overview of the IICPC competitive programming judging platform.
+System-level overview of the OBARENA orderbook engine evaluation platform.
 
 ## Event Flow
 

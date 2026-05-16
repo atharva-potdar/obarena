@@ -240,7 +240,7 @@ resource "aws_iam_openid_connect_provider" "eks" {
 #   1. Create an IAM policy granting s3:PutObject and s3:DeleteObject
 #      on the submissions bucket, then attach it via IRSA to the
 #      submission-api ServiceAccount (recommended over static credentials).
-#   2. Alternatively, create a Kubernetes Secret `iicpc-s3` with
+#   2. Alternatively, create a Kubernetes Secret `obarena-s3` with
 #      AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY and mount it in the
 #      submission-api deployment (see helm chart TODO comments).
 #   3. Set AWS_REGION env var on the submission-api pod to match var.region.

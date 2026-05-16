@@ -3,8 +3,8 @@ set -euo pipefail
 
 # Ensure we have passwords defined
 if [ -z "${TIMESCALEDB_PASSWORD:-}" ]; then
-  echo "TIMESCALEDB_PASSWORD is not set. Defaulting to 'iicpc' (NOT RECOMMENDED FOR PROD)"
-  TIMESCALEDB_PASSWORD="iicpc"
+  echo "TIMESCALEDB_PASSWORD is not set. Defaulting to 'obarena' (NOT RECOMMENDED FOR PROD)"
+  TIMESCALEDB_PASSWORD="obarena"
 fi
 
 if [ -z "${REDIS_PASSWORD:-}" ]; then
@@ -13,13 +13,13 @@ if [ -z "${REDIS_PASSWORD:-}" ]; then
 fi
 
 echo "Updating helm dependencies..."
-helm dependency update infra/helm/iicpc-platform/ || true
+helm dependency update infra/helm/obarena-platform/ || true
 
 echo "Applying Helm Chart..."
-helm upgrade --install iicpc-platform infra/helm/iicpc-platform/ \
+helm upgrade --install obarena-platform infra/helm/obarena-platform/ \
   --namespace platform \
   --create-namespace \
-  -f infra/helm/iicpc-platform/values-prod.yaml \
+  -f infra/helm/obarena-platform/values-prod.yaml \
   --set timescaledb.password="$TIMESCALEDB_PASSWORD" \
   --set redis.password="$REDIS_PASSWORD" \
   --atomic \
@@ -29,5 +29,5 @@ echo "Deployment successful."
 # Extract ingress address
 echo "Waiting for ingress IP..."
 sleep 5
-INGRESS_IP=$(kubectl get ingress iicpc-ingress -n platform -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' || echo "Pending")
+INGRESS_IP=$(kubectl get ingress obarena-ingress -n platform -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' || echo "Pending")
 echo "Platform is reachable at: http://$INGRESS_IP"

@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: telemetry-ingester
+  namespace: platform
+  labels:
+    {{- include "obarena.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: telemetry-ingester
+  template:
+    metadata:
+      labels:
+        {{- include "obarena.labels" . | nindent 8 }}
+        app.kubernetes.io/name: telemetry-ingester
+    spec:
+      nodeSelector:
+        {{- toYaml .Values.nodeSelector.platform | nindent 8 }}
+      tolerations:
+        {{- toYaml .Values.tolerations.platform | nindent 8 }}
+      containers:
+        - name: telemetry-ingester
+          image: {{ include "obarena.image" (list . "telemetry-ingester") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: REDPANDA_BROKERS
+              value: "redpanda.platform.svc.cluster.local:9092"
+            - name: TIMESCALEDB_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: obarena-timescaledb
+                  key: dsn
+            - name: REDIS_ADDR
+              value: "redis.platform.svc.cluster.local:6379"
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: obarena-redis
+                  key: password
+          resources:
+            {{- toYaml .Values.resources.telemetryIngester | nindent 12 }}
+          livenessProbe:
+            exec:
+              command: ["pidof", "telemetry-ingester"]
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3

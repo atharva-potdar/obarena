@@ -1,4 +1,4 @@
-# IICPC Summer Hackathon 2026
+# OBARENA Platform
 
 ## Prerequisites
 
