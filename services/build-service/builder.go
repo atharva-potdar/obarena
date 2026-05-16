@@ -131,7 +131,9 @@ func (b *Builder) Build(ctx context.Context, event SubmissionCreatedEvent) (*Bui
 	if err != nil {
 		return nil, fmt.Errorf("create pod: %w", err)
 	}
-	defer b.cleanupPod(context.Background(), podName)
+	cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cleanupCancel()
+	defer b.cleanupPod(cleanupCtx, podName)
 
 	// Wait for pod to be running
 	if err := b.waitForPodRunning(ctx, pod.Name); err != nil {

@@ -113,7 +113,11 @@ func main() {
 	}
 
 	if client != nil {
-		client.Flush(context.Background())
+		flushCtx, flushCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		if err := client.Flush(flushCtx); err != nil {
+			log.Printf("kafka flush error: %v", err)
+		}
+		flushCancel()
 	}
 	log.Printf("Closing bot runner")
 }

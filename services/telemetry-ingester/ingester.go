@@ -65,10 +65,14 @@ func (i *Ingester) flushLoop() {
 	for {
 		select {
 		case <-i.flushTicker.C:
-			i.flush(context.Background())
+			flushCtx, flushCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			i.flush(flushCtx)
+			flushCancel()
 		case <-i.closeCh:
 			i.flushTicker.Stop()
-			i.flush(context.Background()) // Final flush
+			flushCtx, flushCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			i.flush(flushCtx)
+			flushCancel()
 			return
 		}
 	}

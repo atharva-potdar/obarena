@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 )
 
 func envStr(key, def string) string {
@@ -30,6 +31,7 @@ func envInt(key string, def int) int {
 }
 
 type Server struct {
+	ctx          context.Context
 	orchestrator *Orchestrator
 	mu           sync.Mutex
 	isRunning    bool
@@ -75,7 +77,7 @@ func (s *Server) runHandler(w http.ResponseWriter, r *http.Request) {
 			s.isRunning = false
 			s.mu.Unlock()
 		}()
-		s.orchestrator.Handle(context.Background(), event)
+		s.orchestrator.Handle(s.ctx, event)
 	}()
 
 	w.WriteHeader(http.StatusAccepted)
@@ -136,7 +138,10 @@ func main() {
 	log.Printf("bot-orchestrator started | numBots=%d | duration=%ds | jobTimeout=%ds",
 		numBots, durationSec, jobTimeoutSec)
 
-	srv := &Server{orchestrator: orchestrator}
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+
+	srv := &Server{ctx: ctx, orchestrator: orchestrator}
 	http.HandleFunc("/run", srv.runHandler)
 	http.HandleFunc("/status", srv.statusHandler)
 	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -153,9 +158,6 @@ func main() {
 			log.Fatalf("http server: %v", err)
 		}
 	}()
-
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer cancel()
 
 	// Use consumer as well, forwarding to the same orchestrator (guarded by state if needed)
 	go func() {
@@ -174,12 +176,16 @@ func main() {
 				srv.isRunning = false
 				srv.mu.Unlock()
 			}()
-			
+
 			orchestrator.Handle(c, e)
 		})
 	}()
 
 	<-ctx.Done()
 	log.Println("shutting down")
-	httpServer.Shutdown(context.Background())
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer shutdownCancel()
+	if err := httpServer.Shutdown(shutdownCtx); err != nil {
+		log.Printf("http server shutdown error: %v", err)
+	}
 }
