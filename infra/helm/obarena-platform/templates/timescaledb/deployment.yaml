@@ -16,10 +16,7 @@ spec:
         {{- include "obarena.labels" . | nindent 8 }}
         app.kubernetes.io/name: timescaledb
     spec:
-      nodeSelector:
-        {{- toYaml .Values.nodeSelector.platform | nindent 8 }}
-      tolerations:
-        {{- toYaml .Values.tolerations.platform | nindent 8 }}
+      {{- include "obarena.platformScheduling" . | nindent 6 }}
       containers:
         - name: timescaledb
           image: {{ .Values.thirdParty.timescaledb.image }}
@@ -49,7 +46,8 @@ spec:
             periodSeconds: 5
           volumeMounts:
             - name: pgdata
-              mountPath: /var/lib/postgresql/data # Usually postgres stores data here, keeping compatibility with timescale image defaults
+              # PG 18+ images store data in a versioned subdir under /var/lib/postgresql.
+              mountPath: /var/lib/postgresql
       volumes:
         - name: pgdata
           persistentVolumeClaim:

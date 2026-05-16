@@ -47,3 +47,17 @@ Usage: {{ include "obarena.image" (list . "submission-api") }}
 {{ printf "%s:%s" $service $top.Values.image.tag }}
 {{- end -}}
 {{- end -}}
+
+{{/*
+Platform pool scheduling (nodeSelector + tolerations). Omit entirely when null (values-dev).
+*/}}
+{{- define "obarena.platformScheduling" -}}
+{{- with .Values.nodeSelector.platform }}
+nodeSelector:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- with .Values.tolerations.platform }}
+tolerations:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- end -}}

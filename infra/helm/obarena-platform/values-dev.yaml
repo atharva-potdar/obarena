@@ -1,0 +1,28 @@
+# k3s: dual platform NetworkPolicies (deny + allow) block API egress; disable locally.
+networkPolicies:
+  enabled: false
+
+# Local k3s (single node). Production values.yaml targets EKS node groups with
+# workload=platform|sandbox|bots labels and NoSchedule taints; vanilla k3s has neither.
+# Null clears keys merged from values.yaml (Helm deep-merge keeps {} but drops null).
+
+nodeSelector:
+  platform: null
+  sandbox: null
+  bots: null
+
+tolerations:
+  platform: null
+  sandbox: null
+  bots: null
+
+sandboxOrchestrator:
+  # Omit affinity on dynamically created sandbox pods (see orchestrator.go).
+  nodeSelectorKey: ""
+  nodeSelectorValue: ""
+  tolerationKey: ""
+  tolerationValue: ""
+  seccompProfilePath: ""
+  # Smaller than prod defaults for typical dev machines.
+  sandboxCpuRequest: "500m"
+  sandboxCpuLimit: "1"

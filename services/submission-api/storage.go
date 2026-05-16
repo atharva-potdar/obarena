@@ -7,6 +7,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
@@ -24,6 +25,11 @@ func NewStorage(endpoint string, bucket string) (*Storage, error) {
 	cfg, err := config.LoadDefaultConfig(
 		context.Background(),
 		config.WithRegion(envStr("AWS_REGION", "us-east-1")),
+		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
+			envStr("AWS_ACCESS_KEY_ID", "any"),
+			envStr("AWS_SECRET_ACCESS_KEY", "any"),
+			"",
+		)),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("load config: %w", err)

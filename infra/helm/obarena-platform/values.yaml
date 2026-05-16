@@ -1,3 +1,6 @@
+networkPolicies:
+  enabled: true
+
 image:
   registry: "" # Default local/empty; populated by values-prod.yaml
   tag: dev
@@ -14,6 +17,11 @@ timescaledb:
 
 redis:
   password: redispass # Override via --set during deploy
+
+# SeaweedFS S3 accepts arbitrary credentials in dev; use a Secret in prod.
+s3:
+  accessKey: any
+  secretKey: any
 
 redpanda:
   devMode: true

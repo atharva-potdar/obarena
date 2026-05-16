@@ -19,6 +19,14 @@ func envStr(key, def string) string {
 	return def
 }
 
+// envStrSet returns the env value when the variable is present (including empty string).
+func envStrSet(key, def string) string {
+	if _, ok := os.LookupEnv(key); ok {
+		return os.Getenv(key)
+	}
+	return def
+}
+
 func envInt(key string, def int) int {
 	if v := os.Getenv(key); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
@@ -46,12 +54,12 @@ func run() error {
 		CpuLimit:       envStr("SANDBOX_CPU_LIMIT", "2"),
 		MemoryRequest:  envStr("SANDBOX_MEMORY_REQUEST", "512Mi"),
 		MemoryLimit:    envStr("SANDBOX_MEMORY_LIMIT", "512Mi"),
-		SeccompProfile: envStr("SANDBOX_SECCOMP_PROFILE_PATH", "sandbox-seccomp.json"),
+		SeccompProfile: envStrSet("SANDBOX_SECCOMP_PROFILE_PATH", "sandbox-seccomp.json"),
 		RunAsUser:      int64(envInt("SANDBOX_RUN_AS_USER", 65534)),
-		NodeSelectorK:  envStr("SANDBOX_NODE_SELECTOR_KEY", "workload"),
-		NodeSelectorV:  envStr("SANDBOX_NODE_SELECTOR_VALUE", "sandbox"),
-		TolerationK:    envStr("SANDBOX_TOLERATION_KEY", "workload"),
-		TolerationV:    envStr("SANDBOX_TOLERATION_VALUE", "sandbox"),
+		NodeSelectorK:  envStrSet("SANDBOX_NODE_SELECTOR_KEY", "workload"),
+		NodeSelectorV:  envStrSet("SANDBOX_NODE_SELECTOR_VALUE", "sandbox"),
+		TolerationK:    envStrSet("SANDBOX_TOLERATION_KEY", "workload"),
+		TolerationV:    envStrSet("SANDBOX_TOLERATION_VALUE", "sandbox"),
 	}
 
 	publisher, err := NewPublisher(redpandaBrokers, topic)

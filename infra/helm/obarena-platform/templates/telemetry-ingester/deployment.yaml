@@ -15,10 +15,7 @@ spec:
         {{- include "obarena.labels" . | nindent 8 }}
         app.kubernetes.io/name: telemetry-ingester
     spec:
-      nodeSelector:
-        {{- toYaml .Values.nodeSelector.platform | nindent 8 }}
-      tolerations:
-        {{- toYaml .Values.tolerations.platform | nindent 8 }}
+      {{- include "obarena.platformScheduling" . | nindent 6 }}
       containers:
         - name: telemetry-ingester
           image: {{ include "obarena.image" (list . "telemetry-ingester") }}

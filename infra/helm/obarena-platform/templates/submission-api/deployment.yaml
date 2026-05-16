@@ -15,10 +15,7 @@ spec:
         {{- include "obarena.labels" . | nindent 8 }}
         app.kubernetes.io/name: submission-api
     spec:
-      nodeSelector:
-        {{- toYaml .Values.nodeSelector.platform | nindent 8 }}
-      tolerations:
-        {{- toYaml .Values.tolerations.platform | nindent 8 }}
+      {{- include "obarena.platformScheduling" . | nindent 6 }}
       containers:
         - name: submission-api
           image: {{ include "obarena.image" (list . "submission-api") }}
@@ -32,6 +29,10 @@ spec:
               value: "submissions"
             - name: SEAWEEDFS_ENDPOINT
               value: "http://seaweedfs.platform.svc.cluster.local:8333"
+            - name: AWS_ACCESS_KEY_ID
+              value: {{ .Values.s3.accessKey | quote }}
+            - name: AWS_SECRET_ACCESS_KEY
+              value: {{ .Values.s3.secretKey | quote }}
             # TODO: When migrating from SeaweedFS to real AWS S3:
             #   1. Set AWS_REGION to your target region (e.g. us-east-1)
             #   2. Mount AWS credentials from a Secret:

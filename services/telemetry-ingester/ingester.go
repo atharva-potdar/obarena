@@ -33,25 +33,15 @@ type Ingester struct {
 }
 
 func NewIngester(lifecycleCtx context.Context, dsn, redisAddr, redisPass string, maxLatencyUS, maxTPS float64) (*Ingester, error) {
-	ctx := context.Background()
-
-	// Connect Redis
-	rdb := redis.NewClient(&redis.Options{
-		Addr:     redisAddr,
-		Password: redisPass,
-	})
-
-	pingCtx, pingCancel := context.WithTimeout(lifecycleCtx, 5*time.Second)
-	if err := rdb.Ping(pingCtx).Err(); err != nil {
-		pingCancel()
-		return nil, fmt.Errorf("redis ping: %w", err)
-	}
-	pingCancel()
-
-	// Connect PostgreSQL
-	db, err := pgxpool.New(ctx, dsn)
+	rdb, err := connectRedis(lifecycleCtx, redisAddr, redisPass)
 	if err != nil {
-		return nil, fmt.Errorf("pgxpool.New: %w", err)
+		return nil, err
+	}
+
+	db, err := connectPostgres(lifecycleCtx, dsn)
+	if err != nil {
+		_ = rdb.Close()
+		return nil, err
 	}
 
 	ingester := &Ingester{
@@ -72,6 +62,70 @@ func NewIngester(lifecycleCtx context.Context, dsn, redisAddr, redisPass string,
 	go ingester.flushLoop()
 
 	return ingester, nil
+}
+
+func connectRedis(ctx context.Context, addr, password string) (*redis.Client, error) {
+	rdb := redis.NewClient(&redis.Options{
+		Addr:     addr,
+		Password: password,
+	})
+
+	backoff := time.Second
+	for {
+		pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		err := rdb.Ping(pingCtx).Err()
+		cancel()
+		if err == nil {
+			return rdb, nil
+		}
+		if ctx.Err() != nil {
+			_ = rdb.Close()
+			return nil, ctx.Err()
+		}
+		slog.Warn("redis not ready, retrying", "err", err, "backoff", backoff)
+		select {
+		case <-ctx.Done():
+			_ = rdb.Close()
+			return nil, ctx.Err()
+		case <-time.After(backoff):
+		}
+		if backoff < 30*time.Second {
+			backoff *= 2
+		}
+	}
+}
+
+func connectPostgres(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
+	backoff := time.Second
+	for {
+		db, err := pgxpool.New(ctx, dsn)
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			slog.Warn("postgres pool create failed, retrying", "err", err, "backoff", backoff)
+		} else {
+			pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			err = db.Ping(pingCtx)
+			cancel()
+			if err == nil {
+				return db, nil
+			}
+			db.Close()
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			slog.Warn("postgres not ready, retrying", "err", err, "backoff", backoff)
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(backoff):
+		}
+		if backoff < 30*time.Second {
+			backoff *= 2
+		}
+	}
 }
 
 func (i *Ingester) flushLoop() {

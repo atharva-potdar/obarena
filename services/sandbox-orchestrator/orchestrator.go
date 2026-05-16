@@ -154,6 +154,16 @@ func (o *Orchestrator) Deploy(ctx context.Context, event BuildCompleteEvent) (*D
 	}, nil
 }
 
+func sandboxSeccompProfile(path string) *corev1.SeccompProfile {
+	if path == "" {
+		return &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault}
+	}
+	return &corev1.SeccompProfile{
+		Type:             corev1.SeccompProfileTypeLocalhost,
+		LocalhostProfile: &path,
+	}
+}
+
 func (o *Orchestrator) createSandboxPod(ctx context.Context, name string, binaryPath string) (*corev1.Pod, error) {
 	if !o.binaryPathRegex.MatchString(binaryPath) {
 		return nil, fmt.Errorf("invalid binary path: %s", binaryPath)
@@ -161,29 +171,9 @@ func (o *Orchestrator) createSandboxPod(ctx context.Context, name string, binary
 	automount := false
 	binaryUrl := fmt.Sprintf("%s/%s/%s", o.seaweedfsEndpoint, binaryBucket, binaryPath)
 
-	pod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: sandboxNamespace,
-			Labels: map[string]string{
-				"app":  "sandbox",
-				"role": "contestant-submission",
-			},
-		},
-		Spec: corev1.PodSpec{
+	podSpec := corev1.PodSpec{
 			AutomountServiceAccountToken: &automount,
 			RestartPolicy:                corev1.RestartPolicyNever,
-			NodeSelector: map[string]string{
-				o.cfg.NodeSelectorK: o.cfg.NodeSelectorV,
-			},
-			Tolerations: []corev1.Toleration{
-				{
-					Key:      o.cfg.TolerationK,
-					Operator: corev1.TolerationOpEqual,
-					Value:    o.cfg.TolerationV,
-					Effect:   corev1.TaintEffectNoSchedule,
-				},
-			},
 			InitContainers: []corev1.Container{
 				{
 					Name:    "init-download",
@@ -221,13 +211,7 @@ func (o *Orchestrator) createSandboxPod(ctx context.Context, name string, binary
 						Capabilities: &corev1.Capabilities{
 							Drop: []corev1.Capability{"ALL"},
 						},
-						SeccompProfile: &corev1.SeccompProfile{
-							Type: corev1.SeccompProfileTypeLocalhost,
-							// NOTE: The seccomp profile must exist on the kubelet nodes at
-							// /var/lib/kubelet/seccomp/<profile_path>. This is typically
-							// managed via Terraform user-data or a DaemonSet.
-							LocalhostProfile: &o.cfg.SeccompProfile,
-						},
+						SeccompProfile: sandboxSeccompProfile(o.cfg.SeccompProfile),
 						AppArmorProfile: &corev1.AppArmorProfile{
 							Type: corev1.AppArmorProfileTypeRuntimeDefault,
 						},
@@ -271,7 +255,34 @@ func (o *Orchestrator) createSandboxPod(ctx context.Context, name string, binary
 					},
 				},
 			},
+	}
+
+	if o.cfg.NodeSelectorK != "" && o.cfg.NodeSelectorV != "" {
+		podSpec.NodeSelector = map[string]string{
+			o.cfg.NodeSelectorK: o.cfg.NodeSelectorV,
+		}
+	}
+	if o.cfg.TolerationK != "" && o.cfg.TolerationV != "" {
+		podSpec.Tolerations = []corev1.Toleration{
+			{
+				Key:      o.cfg.TolerationK,
+				Operator: corev1.TolerationOpEqual,
+				Value:    o.cfg.TolerationV,
+				Effect:   corev1.TaintEffectNoSchedule,
+			},
+		}
+	}
+
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: sandboxNamespace,
+			Labels: map[string]string{
+				"app":  "sandbox",
+				"role": "contestant-submission",
+			},
 		},
+		Spec: podSpec,
 	}
 
 	created, err := o.k8sClient.CoreV1().Pods(sandboxNamespace).Create(ctx, pod, metav1.CreateOptions{})

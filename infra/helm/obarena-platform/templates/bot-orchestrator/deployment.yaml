@@ -17,10 +17,7 @@ spec:
         app.kubernetes.io/name: bot-orchestrator
     spec:
       serviceAccountName: bot-orchestrator
-      nodeSelector:
-        {{- toYaml .Values.nodeSelector.platform | nindent 8 }}
-      tolerations:
-        {{- toYaml .Values.tolerations.platform | nindent 8 }}
+      {{- include "obarena.platformScheduling" . | nindent 6 }}
       containers:
         - name: bot-orchestrator
           image: {{ include "obarena.image" (list . "bot-orchestrator") }}
