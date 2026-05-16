@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 )
 
 func envStr(key, def string) string {
@@ -24,29 +27,39 @@ func envFloat(key string, def float64) float64 {
 	return def
 }
 
-func main() {
+func run() error {
 	brokers := strings.Split(envStr("REDPANDA_BROKERS", "redpanda.platform.svc.cluster.local:9092"), ",")
 	dsn := envStr("TIMESCALEDB_DSN", "postgres://postgres:obarena@timescaledb.platform.svc.cluster.local:5432/obarena")
 	redisAddr := envStr("REDIS_ADDR", "redis.platform.svc.cluster.local:6379")
 	redisPass := envStr("REDIS_PASSWORD", "")
 
 	maxLatencyUS := envFloat("MAX_LATENCY_US", 50000.0)
-	maxTPS       := envFloat("MAX_TPS", 1000.0)
+	maxTPS := envFloat("MAX_TPS", 1000.0)
 
 	ingester, err := NewIngester(dsn, redisAddr, redisPass, maxLatencyUS, maxTPS)
 	if err != nil {
-		log.Fatalf("init ingester: %v", err)
+		return fmt.Errorf("init ingester: %v", err)
 	}
 	defer ingester.Close()
 
 	consumer, err := NewConsumer(brokers)
 	if err != nil {
-		log.Fatalf("init consumer: %v", err)
+		return fmt.Errorf("init consumer: %v", err)
 	}
 	defer consumer.Close()
 
 	log.Printf("telemetry-ingester started")
 
-	ctx := context.Background()
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+
 	consumer.Run(ctx, ingester.Handle)
+
+	return nil
+}
+
+func main() {
+	if err := run(); err != nil {
+		log.Fatalf("fatal: %v", err)
+	}
 }

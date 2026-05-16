@@ -130,7 +130,9 @@ func (o *Orchestrator) runTest(ctx context.Context, event SandboxReadyEvent) err
 	time.Sleep(15 * time.Second)
 
 	if err := o.waitForJob(ctx, jobName); err != nil {
-		_ = o.deleteJob(ctx, jobName)
+		if delErr := o.deleteJob(ctx, jobName); delErr != nil {
+			log.Printf("failed to delete job %s after success: %v", jobName, delErr)
+		}
 		return err
 	}
 

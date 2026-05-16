@@ -53,8 +53,11 @@ func main() {
 	defer cancel()
 
 	log.Println("build-service starting")
-	if err := consumer.Run(ctx); err != nil && ctx.Err() == nil {
-		log.Fatalf("consumer: %v", err)
+	if err := consumer.Run(ctx); err != nil {
+		log.Printf("consumer error: %v", err)
+		if ctx.Err() == nil {
+			os.Exit(1)
+		}
 	}
 	log.Println("build-service stopped")
 }

@@ -31,12 +31,12 @@ func NewBotMetrics() *BotMetrics {
 }
 
 func (m *BotMetrics) recordAck(d time.Duration) {
-	m.ackLatency.RecordValue(d.Microseconds())
+	_ = m.ackLatency.RecordValue(d.Microseconds())
 	m.acksRecv++
 }
 
 func (m *BotMetrics) recordFill(d time.Duration) {
-	m.fillLatency.RecordValue(d.Microseconds())
+	_ = m.fillLatency.RecordValue(d.Microseconds())
 	m.fillsRecv++
 }
 
@@ -48,6 +48,8 @@ type AggregateMetrics struct {
 	fillsRecv   int64
 	rejectsRecv int64
 	connDrops   int64
+	ackDropped  int64
+	fillDropped int64
 }
 
 func merge(bots []*BotMetrics) *AggregateMetrics {
@@ -56,8 +58,8 @@ func merge(bots []*BotMetrics) *AggregateMetrics {
 		fillLatency: hdrhistogram.New(minLatencyUS, maxLatencyUS, sigFigures),
 	}
 	for _, b := range bots {
-		agg.ackLatency.Merge(b.ackLatency)
-		agg.fillLatency.Merge(b.fillLatency)
+		agg.ackDropped += agg.ackLatency.Merge(b.ackLatency)
+		agg.fillDropped += agg.fillLatency.Merge(b.fillLatency)
 		agg.ordersSent += b.ordersSent
 		agg.acksRecv += b.acksRecv
 		agg.fillsRecv += b.fillsRecv
@@ -76,6 +78,7 @@ func report(agg *AggregateMetrics, duration time.Duration) {
 	fmt.Printf("Fills received:%d\n", agg.fillsRecv)
 	fmt.Printf("Rejects:       %d\n", agg.rejectsRecv)
 	fmt.Printf("Conn drops:    %d\n", agg.connDrops)
+	fmt.Printf("Hist dropped:  ack=%d fill=%d\n", agg.ackDropped, agg.fillDropped)
 	fmt.Println()
 	fmt.Println("--- Ack Latency (µs) ---")
 	printHistogram(agg.ackLatency)

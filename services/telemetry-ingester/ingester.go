@@ -123,13 +123,21 @@ func (i *Ingester) writeBatch(ctx context.Context, pairs []EventScorePair) error
 	}
 
 	br := i.db.SendBatch(ctx, batch)
-	defer br.Close()
+	defer func() {
+		if err := br.Close(); err != nil {
+			log.Printf("batch result close error: %v", err)
+		}
+	}()
 
+	var errs []error
 	for j := 0; j < len(pairs)*2; j++ {
 		_, err := br.Exec()
 		if err != nil {
-			return fmt.Errorf("batch exec error at index %d: %w", j, err)
+			errs = append(errs, fmt.Errorf("batch exec error at index %d: %w", j, err))
 		}
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("%d batch exec errors: %v", len(errs), errs[0])
 	}
 
 	return nil
@@ -237,5 +245,7 @@ func (i *Ingester) Close() {
 	close(i.closeCh)
 	time.Sleep(100 * time.Millisecond) // wait for flushLoop to complete final flush
 	i.db.Close()
-	i.redis.Close()
+	if err := i.redis.Close(); err != nil {
+		log.Printf("redis close error: %v", err)
+	}
 }

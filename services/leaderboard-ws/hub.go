@@ -25,6 +25,7 @@ type Hub struct {
 	regCh   chan *client
 	unregCh chan *client
 	msgCh   chan []byte
+	quitCh  chan struct{}
 }
 
 func newHub() *Hub {
@@ -33,6 +34,7 @@ func newHub() *Hub {
 		regCh:   make(chan *client, 64),
 		unregCh: make(chan *client, 64),
 		msgCh:   make(chan []byte, 256),
+		quitCh:  make(chan struct{}),
 	}
 }
 
@@ -40,6 +42,8 @@ func newHub() *Hub {
 func (h *Hub) run() {
 	for {
 		select {
+		case <-h.quitCh:
+			return
 		case c := <-h.regCh:
 			h.mu.Lock()
 			h.clients[c] = struct{}{}
@@ -95,7 +99,9 @@ func wsHandler(rdb *redis.Client, hub *Hub) http.HandlerFunc {
 		defer func() {
 			cancel()
 			hub.unregCh <- c
-			conn.Close(websocket.StatusNormalClosure, "")
+			if err := conn.Close(websocket.StatusNormalClosure, ""); err != nil {
+				log.Printf("ws close error: %v", err)
+			}
 		}()
 
 		// Send a full snapshot on connect so the client doesn't have to make a

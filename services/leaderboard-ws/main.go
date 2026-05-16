@@ -7,7 +7,10 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -45,17 +48,27 @@ func main() {
 		Addr:     redisAddr,
 		Password: redisPass,
 	})
-	defer rdb.Close()
+	defer func() {
+		if err := rdb.Close(); err != nil {
+			log.Printf("redis close error: %v", err)
+		}
+	}()
 
 	hub := newHub()
 	go hub.run()
-	go subscribeRedis(rdb, hub)
+
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+
+	go subscribeRedis(ctx, rdb, hub)
 
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"status":"ok"}`))
+		if _, err := w.Write([]byte(`{"status":"ok"}`)); err != nil {
+			log.Printf("healthz write error: %v", err)
+		}
 	})
 
 	mux.HandleFunc("GET /api/leaderboard", leaderboardHandler(rdb))
@@ -70,8 +83,24 @@ func main() {
 	mux.Handle("GET /", http.FileServer(http.FS(frontend)))
 
 	log.Printf("leaderboard-ws listening :%s", port)
-	if err := http.ListenAndServe(":"+port, mux); err != nil {
-		log.Fatal(err)
+
+	srv := &http.Server{Addr: ":" + port, Handler: mux}
+
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("http server: %v", err)
+		}
+	}()
+
+	<-ctx.Done()
+	log.Println("shutting down")
+
+	close(hub.quitCh)
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer shutdownCancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Printf("http server shutdown error: %v", err)
 	}
 }
 
@@ -131,10 +160,13 @@ func leaderboardHandler(rdb *redis.Client) http.HandlerFunc {
 
 // subscribeRedis blocks and fans every message from the leaderboard_updates
 // pub/sub channel out to all connected WebSocket clients via the hub.
-func subscribeRedis(rdb *redis.Client, hub *Hub) {
-	ctx := context.Background()
+func subscribeRedis(ctx context.Context, rdb *redis.Client, hub *Hub) {
 	sub := rdb.Subscribe(ctx, "leaderboard_updates")
-	defer sub.Close()
+	defer func() {
+		if err := sub.Close(); err != nil {
+			log.Printf("redis subscription close error: %v", err)
+		}
+	}()
 
 	ch := sub.Channel()
 	for msg := range ch {

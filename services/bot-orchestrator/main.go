@@ -81,7 +81,9 @@ func (s *Server) runHandler(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	w.WriteHeader(http.StatusAccepted)
-	w.Write([]byte(`{"status": "started"}`))
+	if _, err := w.Write([]byte(`{"status": "started"}`)); err != nil {
+		log.Printf("runHandler write error: %v", err)
+	}
 }
 
 func (s *Server) statusHandler(w http.ResponseWriter, r *http.Request) {
@@ -100,7 +102,9 @@ func (s *Server) statusHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": status})
+	if err := json.NewEncoder(w).Encode(map[string]string{"status": status}); err != nil {
+		log.Printf("statusHandler encode error: %v", err)
+	}
 }
 
 func main() {
@@ -146,7 +150,9 @@ func main() {
 	http.HandleFunc("/status", srv.statusHandler)
 	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("ok"))
+		if _, err := w.Write([]byte("ok")); err != nil {
+			log.Printf("healthz write error: %v", err)
+		}
 	})
 
 	httpServer := &http.Server{Addr: ":8080"}

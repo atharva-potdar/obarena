@@ -438,9 +438,11 @@ func orderbookHandler(ob *Orderbook) http.HandlerFunc {
 		sort.Slice(asks, func(i, j int) bool { return asks[i].Price < asks[j].Price })
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(SnapshotResponse{
+		if err := json.NewEncoder(w).Encode(SnapshotResponse{
 			Bids: bids, Asks: asks, Timestamp: now(),
-		})
+		}); err != nil {
+			log.Printf("orderbook encode error: %v", err)
+		}
 	}
 }
 
@@ -469,7 +471,9 @@ func streamHandler(latency time.Duration, ob *Orderbook) http.HandlerFunc {
 		go s.writeLoop()
 		defer func() {
 			s.ob.cancelSession(s.id)
-			conn.Close(websocket.StatusNormalClosure, "")
+			if err := conn.Close(websocket.StatusNormalClosure, ""); err != nil {
+				log.Printf("ws close error: %v", err)
+			}
 		}()
 
 		for {
@@ -512,7 +516,9 @@ func main() {
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"status":"ok"}`))
+		if _, err := w.Write([]byte(`{"status":"ok"}`)); err != nil {
+			log.Printf("healthz write error: %v", err)
+		}
 	})
 	mux.HandleFunc("GET /stream", streamHandler(latency, ob))
 	mux.HandleFunc("GET /orderbook", orderbookHandler(ob))

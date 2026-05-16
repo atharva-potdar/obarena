@@ -70,7 +70,11 @@ func (b *Bot) Run(ctx context.Context, duration time.Duration, ready chan<- stru
 		case <-time.After(500 * time.Millisecond):
 		}
 	}
-	defer conn.Close(websocket.StatusNormalClosure, "")
+	defer func() {
+		if err := conn.Close(websocket.StatusNormalClosure, ""); err != nil {
+			log.Printf("bot %d close error: %v", b.id, err)
+		}
+	}()
 
 	type stepTemplate struct {
 		isCancel  bool

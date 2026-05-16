@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"path"
+	"strconv"
 	"strings"
 	"time"
 
@@ -174,7 +175,11 @@ func (b *Builder) downloadArtifact(ctx context.Context, key string) ([]byte, err
 	if err != nil {
 		return nil, fmt.Errorf("get object %s: %w", key, err)
 	}
-	defer out.Body.Close()
+	defer func() {
+		if err := out.Body.Close(); err != nil {
+			log.Printf("s3 body close error: %v", err)
+		}
+	}()
 	return io.ReadAll(out.Body)
 }
 
@@ -261,7 +266,11 @@ func validateTarGz(tarGz []byte) error {
 	if err != nil {
 		return fmt.Errorf("invalid gzip: %w", err)
 	}
-	defer gz.Close()
+	defer func() {
+		if err := gz.Close(); err != nil {
+			log.Printf("gzip reader close error: %v", err)
+		}
+	}()
 
 	tr := tar.NewReader(gz)
 	for {
@@ -323,6 +332,14 @@ func (b *Builder) extractAndUploadBinary(ctx context.Context, podName, binaryPat
 		return fmt.Errorf("binary not found: %s: %w", sizeErr.String(), err)
 	}
 
+	binarySize, err := strconv.ParseInt(strings.TrimSpace(sizeOut.String()), 10, 64)
+	if err != nil {
+		return fmt.Errorf("parse binary size: %w", err)
+	}
+	if binarySize > maxBinarySizeBytes {
+		return fmt.Errorf("binary too large: %d bytes (max %d)", binarySize, maxBinarySizeBytes)
+	}
+
 	// Read the binary
 	var binaryBuf bytes.Buffer
 	var readErr bytes.Buffer
@@ -340,7 +357,7 @@ func (b *Builder) extractAndUploadBinary(ctx context.Context, podName, binaryPat
 	}
 
 	// Upload to SeaweedFS
-	_, err := b.s3Client.PutObject(ctx, &s3.PutObjectInput{
+	_, err = b.s3Client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:        aws.String(binaryBucket),
 		Key:           aws.String(binaryPath),
 		Body:          bytes.NewReader(binaryData),

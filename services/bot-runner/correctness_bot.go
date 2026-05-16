@@ -73,7 +73,11 @@ func (cb *CorrectnessBot) runSequence(ctx context.Context, seq Sequence) (int, [
 	if err != nil {
 		return 0, []string{fmt.Sprintf("connect: %v", err)}
 	}
-	defer conn.Close(websocket.StatusNormalClosure, "done")
+	defer func() {
+		if err := conn.Close(websocket.StatusNormalClosure, "done"); err != nil {
+			log.Printf("correctness bot close error: %v", err)
+		}
+	}()
 
 	tagToID := make(map[string]string)
 	stepCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -240,7 +244,11 @@ func (cb *CorrectnessBot) queryOrderbook() (bids, asks int, err error) {
 	if err != nil {
 		return 0, 0, err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			log.Printf("orderbook response body close error: %v", err)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return 0, 0, fmt.Errorf("status %d", resp.StatusCode)

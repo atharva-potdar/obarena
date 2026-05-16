@@ -308,7 +308,11 @@ func (o *Orchestrator) collectPodLogs(ctx context.Context, podName string) strin
 	if err != nil {
 		return fmt.Sprintf("(failed to fetch logs: %v)", err)
 	}
-	defer stream.Close()
+	defer func() {
+		if err := stream.Close(); err != nil {
+			log.Printf("pod log stream close error: %v", err)
+		}
+	}()
 
 	data, err := io.ReadAll(io.LimitReader(stream, int64(o.cfg.MaxLogBytes)))
 	if err != nil {
