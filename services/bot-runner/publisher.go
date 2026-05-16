@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/twmb/franz-go/pkg/kgo"
@@ -36,7 +35,7 @@ type BotMetricsEvent struct {
 	EmittedAt        int64   `json:"emitted_at"`
 }
 
-func publishMetrics(client *kgo.Client, agg *AggregateMetrics, duration time.Duration, teamName, submissionID, testRunID string, correctnessScore float64) error {
+func publishMetrics(client *kgo.Client, topic string, agg *AggregateMetrics, duration time.Duration, teamName, submissionID, testRunID string, correctnessScore float64) error {
 	if client == nil {
 		return nil
 	}
@@ -75,15 +74,15 @@ func publishMetrics(client *kgo.Client, agg *AggregateMetrics, duration time.Dur
 	}
 
 	record := &kgo.Record{
-		Topic: "bot.metrics",
+		Topic: topic,
 		Key:   []byte(submissionID),
 		Value: payload,
 	}
 
-	client.Produce(context.Background(), record, func(_ *kgo.Record, err error) {
-		if err != nil {
-			slog.Error("async metrics produce failed", "error", err)
-		}
-	})
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := client.ProduceSync(ctx, record).FirstErr(); err != nil {
+		return fmt.Errorf("produce: %w", err)
+	}
 	return nil
 }

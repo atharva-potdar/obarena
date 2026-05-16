@@ -20,14 +20,15 @@ type TestCompleteEvent struct {
 
 type Publisher struct {
 	client *kgo.Client
+	topic  string
 }
 
-func NewPublisher(brokers []string) (*Publisher, error) {
+func NewPublisher(brokers []string, topic string) (*Publisher, error) {
 	client, err := kgo.NewClient(kgo.SeedBrokers(brokers...))
 	if err != nil {
 		return nil, fmt.Errorf("new kafka client: %w", err)
 	}
-	return &Publisher{client: client}, nil
+	return &Publisher{client: client, topic: topic}, nil
 }
 
 func (p *Publisher) PublishTestComplete(ctx context.Context, e TestCompleteEvent) error {
@@ -40,12 +41,14 @@ func (p *Publisher) PublishTestComplete(ctx context.Context, e TestCompleteEvent
 	}
 
 	record := &kgo.Record{
-		Topic: "submission.lifecycle",
+		Topic: p.topic,
 		Key:   []byte(e.SubmissionID),
 		Value: payload,
 	}
 
-	if err := p.client.ProduceSync(ctx, record).FirstErr(); err != nil {
+	pCtx, pCancel := context.WithTimeout(ctx, 10*time.Second)
+	defer pCancel()
+	if err := p.client.ProduceSync(pCtx, record).FirstErr(); err != nil {
 		return fmt.Errorf("produce: %w", err)
 	}
 	return nil

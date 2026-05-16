@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -27,53 +28,61 @@ func envInt(key string, def int) int {
 	return def
 }
 
-func main() {
+func run() error {
 	seaweedfsEndpoint := envStr("SEAWEEDFS_ENDPOINT", "http://seaweedfs.platform.svc.cluster.local:8333")
 	redpandaBrokers := strings.Split(envStr("REDPANDA_BROKERS", "redpanda.platform.svc.cluster.local:9092"), ",")
-	
+	topic := envStr("KAFKA_TOPIC", "submission.lifecycle")
+
 	cfg := SandboxConfig{
-		Timeout:       time.Duration(envInt("SANDBOX_TIMEOUT_SECONDS", 60)) * time.Second,
-		MaxLogBytes:   envInt("MAX_LOG_BYTES", 4096),
-		CpuRequest:    envStr("SANDBOX_CPU_REQUEST", "2"),
-		CpuLimit:      envStr("SANDBOX_CPU_LIMIT", "2"),
-		MemoryRequest: envStr("SANDBOX_MEMORY_REQUEST", "512Mi"),
-		MemoryLimit:   envStr("SANDBOX_MEMORY_LIMIT", "512Mi"),
+		Timeout:        time.Duration(envInt("SANDBOX_TIMEOUT_SECONDS", 60)) * time.Second,
+		MaxLogBytes:    envInt("MAX_LOG_BYTES", 4096),
+		CpuRequest:     envStr("SANDBOX_CPU_REQUEST", "2"),
+		CpuLimit:       envStr("SANDBOX_CPU_LIMIT", "2"),
+		MemoryRequest:  envStr("SANDBOX_MEMORY_REQUEST", "512Mi"),
+		MemoryLimit:    envStr("SANDBOX_MEMORY_LIMIT", "512Mi"),
 		SeccompProfile: envStr("SANDBOX_SECCOMP_PROFILE_PATH", "sandbox-seccomp.json"),
-		RunAsUser:     int64(envInt("SANDBOX_RUN_AS_USER", 65534)),
-		NodeSelectorK: envStr("SANDBOX_NODE_SELECTOR_KEY", "workload"),
-		NodeSelectorV: envStr("SANDBOX_NODE_SELECTOR_VALUE", "sandbox"),
-		TolerationK:   envStr("SANDBOX_TOLERATION_KEY", "workload"),
-		TolerationV:   envStr("SANDBOX_TOLERATION_VALUE", "sandbox"),
+		RunAsUser:      int64(envInt("SANDBOX_RUN_AS_USER", 65534)),
+		NodeSelectorK:  envStr("SANDBOX_NODE_SELECTOR_KEY", "workload"),
+		NodeSelectorV:  envStr("SANDBOX_NODE_SELECTOR_VALUE", "sandbox"),
+		TolerationK:    envStr("SANDBOX_TOLERATION_KEY", "workload"),
+		TolerationV:    envStr("SANDBOX_TOLERATION_VALUE", "sandbox"),
 	}
 
-	publisher, err := NewPublisher(redpandaBrokers)
+	publisher, err := NewPublisher(redpandaBrokers, topic)
 	if err != nil {
-		slog.Error("init publisher", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("init publisher: %w", err)
 	}
 	defer publisher.Close()
 
 	orchestrator, err := NewOrchestrator(seaweedfsEndpoint, cfg)
 	if err != nil {
-		slog.Error("init orchestrator", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("init orchestrator: %w", err)
 	}
 	defer orchestrator.Close()
 
-	consumer, err := NewConsumer(redpandaBrokers, orchestrator, publisher)
+	consumer, err := NewConsumer(redpandaBrokers, topic, orchestrator, publisher)
 	if err != nil {
-		slog.Error("init consumer", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("init consumer: %w", err)
 	}
 	defer consumer.Close()
 
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer cancel()
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 
 	slog.Info("sandbox-orchestrator starting")
-	if err := consumer.Run(ctx); err != nil && ctx.Err() == nil {
-		slog.Error("consumer", "error", err)
-		os.Exit(1)
+	if err := consumer.Run(ctx); err != nil {
+		if ctx.Err() == nil {
+			return fmt.Errorf("consumer: %w", err)
+		}
 	}
 	slog.Info("sandbox-orchestrator stopped")
+
+	return nil
+}
+
+func main() {
+	if err := run(); err != nil {
+		slog.Error("fatal", "err", err)
+		os.Exit(1)
+	}
 }

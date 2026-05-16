@@ -4,12 +4,15 @@ import (
 	"container/heap"
 	"context"
 	"encoding/json"
-	"log"
+	"errors"
+	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
 	"sort"
 	"strconv"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/coder/websocket"
@@ -441,7 +444,7 @@ func orderbookHandler(ob *Orderbook) http.HandlerFunc {
 		if err := json.NewEncoder(w).Encode(SnapshotResponse{
 			Bids: bids, Asks: asks, Timestamp: now(),
 		}); err != nil {
-			log.Printf("orderbook encode error: %v", err)
+			slog.Error("orderbook encode error", "err", err)
 		}
 	}
 }
@@ -452,7 +455,7 @@ func streamHandler(latency time.Duration, ob *Orderbook) http.HandlerFunc {
 			InsecureSkipVerify: true,
 		})
 		if err != nil {
-			log.Printf("accept: %v", err)
+			slog.Error("accept", "err", err)
 			return
 		}
 
@@ -472,7 +475,7 @@ func streamHandler(latency time.Duration, ob *Orderbook) http.HandlerFunc {
 		defer func() {
 			s.ob.cancelSession(s.id)
 			if err := conn.Close(websocket.StatusNormalClosure, ""); err != nil {
-				log.Printf("ws close error: %v", err)
+				slog.Error("ws close error", "err", err)
 			}
 		}()
 
@@ -517,14 +520,31 @@ func main() {
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if _, err := w.Write([]byte(`{"status":"ok"}`)); err != nil {
-			log.Printf("healthz write error: %v", err)
+			slog.Error("healthz write error", "err", err)
 		}
 	})
 	mux.HandleFunc("GET /stream", streamHandler(latency, ob))
 	mux.HandleFunc("GET /orderbook", orderbookHandler(ob))
 
-	log.Printf("stub listening :%s (latency=%s)", port, latency)
-	if err := http.ListenAndServe(":"+port, mux); err != nil {
-		log.Fatal(err)
+	slog.Info("stub listening", "port", port, "latency", latency)
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	srv := &http.Server{Addr: ":" + port, Handler: mux}
+
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			slog.Error("listen", "err", err)
+			os.Exit(1)
+		}
+	}()
+
+	<-ctx.Done()
+	slog.Info("shutting down")
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer shutdownCancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		slog.Error("shutdown", "err", err)
 	}
 }

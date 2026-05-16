@@ -2,11 +2,14 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/twmb/franz-go/pkg/kgo"
@@ -28,7 +31,7 @@ func envStr(key, def string) string {
 	return def
 }
 
-func main() {
+func run() error {
 	endpoint := envStr("TARGET_ENDPOINT", "ws://localhost:8080/stream")
 	numBots := envInt("NUM_BOTS", 10)
 	durationSec := envInt("DURATION_SECONDS", 30)
@@ -36,6 +39,7 @@ func main() {
 	submissionID := envStr("TEST_RUN_ID", "")
 	testRunID := submissionID
 	rawBrokers := envStr("REDPANDA_BROKERS", "")
+	topic := envStr("KAFKA_TOPIC", "bot.metrics")
 	var brokers []string
 	for _, b := range strings.Split(rawBrokers, ",") {
 		if trimmed := strings.TrimSpace(b); trimmed != "" {
@@ -50,16 +54,18 @@ func main() {
 		var err error
 		client, err = kgo.NewClient(kgo.SeedBrokers(brokers...))
 		if err != nil {
-			slog.Error("failed to create kafka client", "error", err)
-			os.Exit(1)
+			return fmt.Errorf("failed to create kafka client: %w", err)
 		}
 		defer client.Close()
 	}
 
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
 	// ── Phase 1: Correctness (synchronous, 1 bot, ~5-10s) ──────────────
 	slog.Info("phase 1: correctness validation", "endpoint", endpoint)
 	cb := NewCorrectnessBot(endpoint)
-	correctnessResult := cb.Run(context.Background())
+	correctnessResult := cb.Run(ctx)
 	slog.Info("correctness complete",
 		"score", correctnessResult.Score,
 		"passed", correctnessResult.Passed,
@@ -73,8 +79,8 @@ func main() {
 		"endpoint", endpoint,
 	)
 
-	ctx, cancel := context.WithTimeout(context.Background(), duration+30*time.Second)
-	defer cancel()
+	testCtx, testCancel := context.WithTimeout(ctx, duration+30*time.Second)
+	defer testCancel()
 
 	bots := make([]*Bot, numBots)
 	for i := range bots {
@@ -89,7 +95,7 @@ func main() {
 		wg.Add(1)
 		go func(b *Bot) {
 			defer wg.Done()
-			b.Run(ctx, duration, readyCh)
+			b.Run(testCtx, duration, readyCh)
 		}(bot)
 	}
 
@@ -97,8 +103,8 @@ func main() {
 	for i := 0; i < numBots; i++ {
 		select {
 		case <-readyCh:
-		case <-ctx.Done():
-			return
+		case <-testCtx.Done():
+			return testCtx.Err()
 		}
 	}
 	slog.Info("all bots warmed up, starting measurement")
@@ -116,8 +122,8 @@ func main() {
 
 	slog.Info("attempting to publish metrics", "submission", submissionID)
 	if submissionID != "" {
-		if err := publishMetrics(client, agg, elapsed, teamName, submissionID, testRunID, correctnessResult.Score); err != nil {
-			slog.Error("failed to publish metrics", "error", err)
+		if err := publishMetrics(client, topic, agg, elapsed, teamName, submissionID, testRunID, correctnessResult.Score); err != nil {
+			slog.Error("failed to publish metrics", "err", err)
 		} else {
 			slog.Info("metrics published to Redpanda")
 		}
@@ -125,10 +131,18 @@ func main() {
 
 	if client != nil {
 		flushCtx, flushCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer flushCancel()
 		if err := client.Flush(flushCtx); err != nil {
-			slog.Error("kafka flush error", "error", err)
+			slog.Error("kafka flush error", "err", err)
 		}
-		flushCancel()
 	}
 	slog.Info("Closing bot runner")
+	return nil
+}
+
+func main() {
+	if err := run(); err != nil {
+		slog.Error("fatal", "err", err)
+		os.Exit(1)
+	}
 }

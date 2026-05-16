@@ -20,11 +20,11 @@ type EventScorePair struct {
 }
 
 type Ingester struct {
-	db                   *pgxpool.Pool
-	redis                *redis.Client
+	db                     *pgxpool.Pool
+	redis                  *redis.Client
 	maxAcceptableLatencyUS float64 // ceiling for the weighted p50/p90/p99 score
-	maxAcceptableTPS     float64
-	lifecycleCtx          context.Context
+	maxAcceptableTPS       float64
+	lifecycleCtx           context.Context
 
 	mu          sync.Mutex
 	eventBuffer []EventScorePair
@@ -55,14 +55,14 @@ func NewIngester(lifecycleCtx context.Context, dsn, redisAddr, redisPass string,
 	}
 
 	ingester := &Ingester{
-		db:                   db,
-		redis:                rdb,
+		db:                     db,
+		redis:                  rdb,
 		maxAcceptableLatencyUS: maxLatencyUS,
-		maxAcceptableTPS:     maxTPS,
-		lifecycleCtx:          lifecycleCtx,
-		eventBuffer:          make([]EventScorePair, 0, 1000),
-		flushTicker:          time.NewTicker(500 * time.Millisecond),
-		closeCh:              make(chan struct{}),
+		maxAcceptableTPS:       maxTPS,
+		lifecycleCtx:           lifecycleCtx,
+		eventBuffer:            make([]EventScorePair, 0, 1000),
+		flushTicker:            time.NewTicker(500 * time.Millisecond),
+		closeCh:                make(chan struct{}),
 	}
 
 	go ingester.flushLoop()
@@ -170,7 +170,6 @@ func (i *Ingester) Handle(ctx context.Context, event BotMetricsEvent) {
 		"ack_p90", event.AckP90US,
 	)
 }
-
 
 func (i *Ingester) computeScore(event BotMetricsEvent) float64 {
 	// Latency score: weighted combination of p50/p90/p99 acknowledgment latencies.

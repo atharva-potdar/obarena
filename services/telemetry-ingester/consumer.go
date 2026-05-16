@@ -36,18 +36,20 @@ type BotMetricsEvent struct {
 
 type Consumer struct {
 	client *kgo.Client
+	topic  string
 }
 
-func NewConsumer(brokers []string) (*Consumer, error) {
+func NewConsumer(brokers []string, topic string) (*Consumer, error) {
 	client, err := kgo.NewClient(
 		kgo.SeedBrokers(brokers...),
 		kgo.ConsumerGroup("telemetry-ingester"),
-		kgo.ConsumeTopics("bot.metrics"),
+		kgo.ConsumeTopics(topic),
+		kgo.DisableAutoCommit(),
 	)
 	if err != nil {
 		return nil, err
 	}
-	return &Consumer{client: client}, nil
+	return &Consumer{client: client, topic: topic}, nil
 }
 
 func (c *Consumer) Run(ctx context.Context, handler func(context.Context, BotMetricsEvent)) {
@@ -57,12 +59,12 @@ func (c *Consumer) Run(ctx context.Context, handler func(context.Context, BotMet
 			return
 		}
 		fetches.EachError(func(t string, p int32, err error) {
-			slog.Error("fetch error", "topic", t, "partition", p, "error", err)
+			slog.Error("fetch error", "topic", t, "partition", p, "err", err)
 		})
 		fetches.EachRecord(func(r *kgo.Record) {
 			var event BotMetricsEvent
 			if err := json.Unmarshal(r.Value, &event); err != nil {
-				slog.Error("unmarshal bot.metrics", "error", err)
+				slog.Error("unmarshal bot.metrics", "err", err)
 				return
 			}
 			if event.Event != "bot.metrics" {
@@ -70,6 +72,10 @@ func (c *Consumer) Run(ctx context.Context, handler func(context.Context, BotMet
 			}
 			handler(ctx, event)
 		})
+
+		if err := c.client.CommitUncommittedOffsets(ctx); err != nil {
+			slog.Error("commit offsets", "err", err)
+		}
 	}
 }
 

@@ -37,7 +37,11 @@ func run() error {
 			brokers = append(brokers, trimmed)
 		}
 	}
-	dsn := envStr("TIMESCALEDB_DSN", "postgres://postgres:obarena@timescaledb.platform.svc.cluster.local:5432/obarena")
+	dsn := envStr("TIMESCALEDB_DSN", "")
+	if dsn == "" {
+		return fmt.Errorf("TIMESCALEDB_DSN must be set")
+	}
+	topic := envStr("KAFKA_TOPIC", "bot.metrics")
 	redisAddr := envStr("REDIS_ADDR", "redis.platform.svc.cluster.local:6379")
 	redisPass := envStr("REDIS_PASSWORD", "")
 
@@ -53,7 +57,7 @@ func run() error {
 	}
 	defer ingester.Close()
 
-	consumer, err := NewConsumer(brokers)
+	consumer, err := NewConsumer(brokers, topic)
 	if err != nil {
 		return fmt.Errorf("init consumer: %v", err)
 	}
@@ -66,20 +70,20 @@ func run() error {
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if _, err := w.Write([]byte(`{"status":"ok"}`)); err != nil {
-			slog.Error("healthz write error", "error", err)
+			slog.Error("healthz write error", "err", err)
 		}
 	})
 	healthSrv := &http.Server{Addr: ":8080", Handler: mux}
 	go func() {
 		if err := healthSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			slog.Error("healthz server", "error", err)
+			slog.Error("healthz server", "err", err)
 		}
 	}()
 	defer func() {
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer shutdownCancel()
 		if err := healthSrv.Shutdown(shutdownCtx); err != nil {
-			slog.Error("healthz shutdown error", "error", err)
+			slog.Error("healthz shutdown error", "err", err)
 		}
 	}()
 
@@ -90,7 +94,7 @@ func run() error {
 
 func main() {
 	if err := run(); err != nil {
-		slog.Error("fatal", "error", err)
+		slog.Error("fatal", "err", err)
 		os.Exit(1)
 	}
 }

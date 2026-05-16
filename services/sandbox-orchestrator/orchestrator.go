@@ -34,26 +34,26 @@ type DeployResult struct {
 }
 
 type SandboxConfig struct {
-	Timeout       time.Duration
-	MaxLogBytes   int
-	CpuRequest    string
-	CpuLimit      string
-	MemoryRequest string
-	MemoryLimit   string
+	Timeout        time.Duration
+	MaxLogBytes    int
+	CpuRequest     string
+	CpuLimit       string
+	MemoryRequest  string
+	MemoryLimit    string
 	SeccompProfile string
-	RunAsUser     int64
-	NodeSelectorK string
-	NodeSelectorV string
-	TolerationK   string
-	TolerationV   string
+	RunAsUser      int64
+	NodeSelectorK  string
+	NodeSelectorV  string
+	TolerationK    string
+	TolerationV    string
 }
 
 type Orchestrator struct {
 	seaweedfsEndpoint string
-	s3Client       *s3.Client
-	k8sClient      kubernetes.Interface
-	restConfig     *rest.Config
-	cfg            SandboxConfig
+	s3Client          *s3.Client
+	k8sClient         kubernetes.Interface
+	restConfig        *rest.Config
+	cfg               SandboxConfig
 }
 
 func NewOrchestrator(seaweedfsEndpoint string, cfg SandboxConfig) (*Orchestrator, error) {
@@ -85,10 +85,10 @@ func NewOrchestrator(seaweedfsEndpoint string, cfg SandboxConfig) (*Orchestrator
 
 	return &Orchestrator{
 		seaweedfsEndpoint: seaweedfsEndpoint,
-		s3Client:       s3Client,
-		k8sClient:      k8s,
-		restConfig:     restCfg,
-		cfg:            cfg,
+		s3Client:          s3Client,
+		k8sClient:         k8s,
+		restConfig:        restCfg,
+		cfg:               cfg,
 	}, nil
 }
 
@@ -283,7 +283,7 @@ func (o *Orchestrator) waitForPodRunning(ctx context.Context, name string) error
 		if !ok {
 			continue
 		}
-		
+
 		if pod.Status.Phase == corev1.PodFailed || pod.Status.Phase == corev1.PodSucceeded {
 			return fmt.Errorf("pod terminated with phase %s", pod.Status.Phase)
 		}

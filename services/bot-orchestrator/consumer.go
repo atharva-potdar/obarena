@@ -21,18 +21,20 @@ type SandboxReadyEvent struct {
 
 type Consumer struct {
 	client *kgo.Client
+	topic  string
 }
 
-func NewConsumer(brokers []string) (*Consumer, error) {
+func NewConsumer(brokers []string, topic string) (*Consumer, error) {
 	client, err := kgo.NewClient(
 		kgo.SeedBrokers(brokers...),
 		kgo.ConsumerGroup("bot-orchestrator"),
-		kgo.ConsumeTopics("submission.lifecycle"),
+		kgo.ConsumeTopics(topic),
+		kgo.DisableAutoCommit(),
 	)
 	if err != nil {
 		return nil, err
 	}
-	return &Consumer{client: client}, nil
+	return &Consumer{client: client, topic: topic}, nil
 }
 
 func (c *Consumer) Run(ctx context.Context, handler func(context.Context, SandboxReadyEvent)) {
@@ -42,7 +44,7 @@ func (c *Consumer) Run(ctx context.Context, handler func(context.Context, Sandbo
 			return
 		}
 		fetches.EachError(func(t string, p int32, err error) {
-			slog.Error("fetch error", "topic", t, "partition", p, "error", err)
+			slog.Error("fetch error", "topic", t, "partition", p, "err", err)
 		})
 		fetches.EachRecord(func(r *kgo.Record) {
 			var base struct {
@@ -56,11 +58,15 @@ func (c *Consumer) Run(ctx context.Context, handler func(context.Context, Sandbo
 			}
 			var event SandboxReadyEvent
 			if err := json.Unmarshal(r.Value, &event); err != nil {
-				slog.Error("unmarshal sandbox.ready", "error", err)
+				slog.Error("unmarshal sandbox.ready", "err", err)
 				return
 			}
 			handler(ctx, event)
 		})
+
+		if err := c.client.CommitUncommittedOffsets(ctx); err != nil {
+			slog.Error("commit offsets", "err", err)
+		}
 	}
 }
 

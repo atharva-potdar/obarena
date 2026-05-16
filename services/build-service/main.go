@@ -36,10 +36,11 @@ func run() error {
 			redpandaBrokers = append(redpandaBrokers, trimmed)
 		}
 	}
+	topic := envStr("KAFKA_TOPIC", "submission.lifecycle")
 	buildTimeout := envInt("BUILD_TIMEOUT_SECONDS", 120)
 	maxLogBytes := envInt("MAX_LOG_BYTES", 4096)
 
-	publisher, err := NewPublisher(redpandaBrokers)
+	publisher, err := NewPublisher(redpandaBrokers, topic)
 	if err != nil {
 		return fmt.Errorf("init publisher: %v", err)
 	}
@@ -50,7 +51,7 @@ func run() error {
 		return fmt.Errorf("init builder: %v", err)
 	}
 
-	consumer, err := NewConsumer(redpandaBrokers, builder, publisher)
+	consumer, err := NewConsumer(redpandaBrokers, topic, builder, publisher)
 	if err != nil {
 		return fmt.Errorf("init consumer: %v", err)
 	}
@@ -72,7 +73,7 @@ func run() error {
 
 func main() {
 	if err := run(); err != nil {
-		slog.Error("fatal", "error", err)
+		slog.Error("fatal", "err", err)
 		os.Exit(1)
 	}
 }

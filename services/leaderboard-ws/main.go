@@ -51,7 +51,7 @@ func run() error {
 	})
 	defer func() {
 		if err := rdb.Close(); err != nil {
-			slog.Error("redis close error", "error", err)
+			slog.Error("redis close error", "err", err)
 		}
 	}()
 
@@ -68,7 +68,7 @@ func run() error {
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if _, err := w.Write([]byte(`{"status":"ok"}`)); err != nil {
-			slog.Error("healthz write error", "error", err)
+			slog.Error("healthz write error", "err", err)
 		}
 	})
 
@@ -89,7 +89,7 @@ func run() error {
 
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			slog.Error("http server", "error", err)
+			slog.Error("http server", "err", err)
 		}
 	}()
 
@@ -109,7 +109,7 @@ func run() error {
 
 func main() {
 	if err := run(); err != nil {
-		slog.Error("fatal", "error", err)
+		slog.Error("fatal", "err", err)
 		os.Exit(1)
 	}
 }
@@ -124,7 +124,7 @@ func leaderboardHandler(rdb *redis.Client) http.HandlerFunc {
 		// ZREVRANGE returns members in descending score order (best first).
 		members, err := rdb.ZRevRangeWithScores(ctx, "leaderboard", 0, -1).Result()
 		if err != nil {
-			slog.Error("zrevrange", "error", err)
+			slog.Error("zrevrange", "err", err)
 			http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
 			return
 		}
@@ -153,7 +153,7 @@ func leaderboardHandler(rdb *redis.Client) http.HandlerFunc {
 
 			var entry leaderboardEntry
 			if err := json.Unmarshal(blob, &entry); err != nil {
-				slog.Error("unmarshal leaderboard_details", "submission", submissionID, "error", err)
+				slog.Error("unmarshal leaderboard_details", "submission", submissionID, "err", err)
 				continue
 			}
 			entry.Rank = rank + 1
@@ -163,7 +163,7 @@ func leaderboardHandler(rdb *redis.Client) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		if err := json.NewEncoder(w).Encode(entries); err != nil {
-			slog.Error("encode leaderboard response", "error", err)
+			slog.Error("encode leaderboard response", "err", err)
 		}
 	}
 }
@@ -174,7 +174,7 @@ func subscribeRedis(ctx context.Context, rdb *redis.Client, hub *Hub) {
 	sub := rdb.Subscribe(ctx, "leaderboard_updates")
 	defer func() {
 		if err := sub.Close(); err != nil {
-			slog.Error("redis subscription close error", "error", err)
+			slog.Error("redis subscription close error", "err", err)
 		}
 	}()
 

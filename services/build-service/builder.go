@@ -9,10 +9,10 @@ import (
 	"io"
 	"log/slog"
 	"path"
-	"unicode/utf8"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"

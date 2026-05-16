@@ -88,9 +88,9 @@ func (b *Bot) Run(ctx context.Context, duration time.Duration, ready chan<- stru
 		if step.Kind == StepOrder {
 			tmpl := fmt.Sprintf(`{"type":"order","order_id":"%%s","side":"%s","order_type":"%s","price":%f,"quantity":%d}`, step.Side, step.OrderType, step.Price, step.Quantity)
 			templates[i] = stepTemplate{
-				isCancel:  false,
-				payload:   []byte(tmpl),
-				tag:       step.Tag,
+				isCancel: false,
+				payload:  []byte(tmpl),
+				tag:      step.Tag,
 			}
 		} else {
 			tmpl := `{"type":"cancel","order_id":"%s"}`

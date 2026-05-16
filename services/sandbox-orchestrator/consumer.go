@@ -23,19 +23,20 @@ type Consumer struct {
 	client       *kgo.Client
 	orchestrator *Orchestrator
 	publisher    *Publisher
+	topic        string
 }
 
-func NewConsumer(brokers []string, orchestrator *Orchestrator, publisher *Publisher) (*Consumer, error) {
+func NewConsumer(brokers []string, topic string, orchestrator *Orchestrator, publisher *Publisher) (*Consumer, error) {
 	client, err := kgo.NewClient(
 		kgo.SeedBrokers(brokers...),
 		kgo.ConsumerGroup("sandbox-orchestrator"),
-		kgo.ConsumeTopics("submission.lifecycle"),
+		kgo.ConsumeTopics(topic),
 		kgo.DisableAutoCommit(),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("new kafka client: %w", err)
 	}
-	return &Consumer{client: client, orchestrator: orchestrator, publisher: publisher}, nil
+	return &Consumer{client: client, orchestrator: orchestrator, publisher: publisher, topic: topic}, nil
 }
 
 // Run consumes events until the context is cancelled.

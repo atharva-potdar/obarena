@@ -11,8 +11,6 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
-const lifecycleTopic = "submission.lifecycle"
-
 // BuildCompleteEvent is published when a build succeeds.
 type BuildCompleteEvent struct {
 	Event        string `json:"event"`
@@ -33,9 +31,10 @@ type BuildFailedEvent struct {
 
 type Publisher struct {
 	client *kgo.Client
+	topic  string
 }
 
-func NewPublisher(brokers []string) (*Publisher, error) {
+func NewPublisher(brokers []string, topic string) (*Publisher, error) {
 	client, err := kgo.NewClient(
 		kgo.SeedBrokers(brokers...),
 		kgo.WithLogger(kgo.BasicLogger(os.Stderr, kgo.LogLevelInfo, nil)),
@@ -43,7 +42,7 @@ func NewPublisher(brokers []string) (*Publisher, error) {
 	if err != nil {
 		return nil, fmt.Errorf("new kafka client: %w", err)
 	}
-	return &Publisher{client: client}, nil
+	return &Publisher{client: client, topic: topic}, nil
 }
 
 func (p *Publisher) PublishBuildComplete(
@@ -80,11 +79,14 @@ func (p *Publisher) publish(ctx context.Context, key string, event any) error {
 		return fmt.Errorf("marshal event: %w", err)
 	}
 	record := &kgo.Record{
-		Topic: lifecycleTopic,
+		Topic: p.topic,
 		Key:   []byte(key),
 		Value: payload,
 	}
-	if err := p.client.ProduceSync(ctx, record).FirstErr(); err != nil {
+
+	pCtx, pCancel := context.WithTimeout(ctx, 10*time.Second)
+	defer pCancel()
+	if err := p.client.ProduceSync(pCtx, record).FirstErr(); err != nil {
 		return fmt.Errorf("produce: %w", err)
 	}
 	return nil

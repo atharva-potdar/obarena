@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -56,10 +57,14 @@ func (s *Server) runHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Body != nil {
 		defer func() {
 			if err := r.Body.Close(); err != nil {
-				slog.Error("runHandler body close error", "error", err)
+				slog.Error("runHandler body close error", "err", err)
 			}
 		}()
-		_ = json.NewDecoder(r.Body).Decode(&event)
+		if err := json.NewDecoder(r.Body).Decode(&event); err != nil {
+			slog.Error("runHandler decode error", "err", err)
+			http.Error(w, "Bad request", http.StatusBadRequest)
+			return
+		}
 	}
 
 	// Default fallback if no body provided
@@ -87,7 +92,7 @@ func (s *Server) runHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusAccepted)
 	if _, err := w.Write([]byte(`{"status": "started"}`)); err != nil {
-		slog.Error("runHandler write error", "error", err)
+		slog.Error("runHandler write error", "err", err)
 	}
 }
 
@@ -108,11 +113,11 @@ func (s *Server) statusHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]string{"status": status}); err != nil {
-		slog.Error("statusHandler encode error", "error", err)
+		slog.Error("statusHandler encode error", "err", err)
 	}
 }
 
-func main() {
+func run() error {
 	rawBrokers := envStr("REDPANDA_BROKERS", "redpanda.platform.svc.cluster.local:9092")
 	var brokers []string
 	for _, b := range strings.Split(rawBrokers, ",") {
@@ -120,6 +125,7 @@ func main() {
 			brokers = append(brokers, trimmed)
 		}
 	}
+	topic := envStr("KAFKA_TOPIC", "submission.lifecycle")
 	numBots := envInt("NUM_BOTS", 50)
 	durationSec := envInt("DURATION_SECONDS", 60)
 	jobTimeoutSec := envInt("JOB_TIMEOUT_SECONDS", 120)
@@ -127,10 +133,9 @@ func main() {
 	sandboxNamespace := envStr("SANDBOX_NAMESPACE", "sandboxes")
 	botRunnerImage := envStr("BOT_RUNNER_IMAGE", "bot-runner:dev")
 
-	publisher, err := NewPublisher(brokers)
+	publisher, err := NewPublisher(brokers, topic)
 	if err != nil {
-		slog.Error("init publisher", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("init publisher: %w", err)
 	}
 	defer publisher.Close()
 
@@ -146,49 +151,45 @@ func main() {
 
 	orchestrator, err := NewOrchestrator(publisher, cfg)
 	if err != nil {
-		slog.Error("init orchestrator", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("init orchestrator: %w", err)
 	}
 
-	consumer, err := NewConsumer(brokers)
+	consumer, err := NewConsumer(brokers, topic)
 	if err != nil {
-		slog.Error("init consumer", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("init consumer: %w", err)
 	}
 	defer consumer.Close()
 
-	slog.Info("bot-orchestrator started",
+	slog.Info("bot-orchestrator starting",
 		"numBots", numBots,
 		"duration", durationSec,
 		"jobTimeout", jobTimeoutSec,
 		"warmup", warmupSec,
 	)
 
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer cancel()
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 
 	srv := &Server{ctx: ctx, orchestrator: orchestrator}
-	http.HandleFunc("/run", srv.runHandler)
-	http.HandleFunc("/status", srv.statusHandler)
-	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/run", srv.runHandler)
+	mux.HandleFunc("/status", srv.statusHandler)
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		if _, err := w.Write([]byte("ok")); err != nil {
-			slog.Error("healthz write error", "error", err)
+			slog.Error("healthz write error", "err", err)
 		}
 	})
 
-	httpServer := &http.Server{Addr: ":8080"}
+	httpServer := &http.Server{Addr: ":8080", Handler: mux}
 
-	// Run HTTP server
 	go func() {
 		slog.Info("HTTP server listening on :8080")
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			slog.Error("http server", "error", err)
-			os.Exit(1)
+			slog.Error("http server", "err", err)
 		}
 	}()
 
-	// Use consumer as well, forwarding to the same orchestrator (guarded by state if needed)
 	go func() {
 		consumer.Run(ctx, func(c context.Context, e SandboxReadyEvent) {
 			srv.mu.Lock()
@@ -215,6 +216,15 @@ func main() {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer shutdownCancel()
 	if err := httpServer.Shutdown(shutdownCtx); err != nil {
-		slog.Error("http server shutdown error", "error", err)
+		return fmt.Errorf("http server shutdown: %w", err)
+	}
+
+	return nil
+}
+
+func main() {
+	if err := run(); err != nil {
+		slog.Error("fatal", "err", err)
+		os.Exit(1)
 	}
 }

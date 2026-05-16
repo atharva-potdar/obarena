@@ -172,7 +172,7 @@ func buildSnapshot(ctx context.Context, rdb *redis.Client) ([]byte, error) {
 	// Wrap in a snapshot envelope so the client can distinguish an initial
 	// snapshot from a single-entry live update.
 	type snapshotMsg struct {
-		Type    string           `json:"type"`
+		Type    string             `json:"type"`
 		Entries []leaderboardEntry `json:"entries"`
 	}
 	return json.Marshal(snapshotMsg{Type: "snapshot", Entries: entries})
