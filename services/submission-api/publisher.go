@@ -21,9 +21,10 @@ type SubmissionCreatedEvent struct {
 
 type Publisher struct {
 	client *kgo.Client
+	topic  string
 }
 
-func NewPublisher(brokers []string) (*Publisher, error) {
+func NewPublisher(brokers []string, topic string) (*Publisher, error) {
 	client, err := kgo.NewClient(
 		kgo.SeedBrokers(brokers...),
 		kgo.WithLogger(kgo.BasicLogger(os.Stderr, kgo.LogLevelInfo, nil)),
@@ -31,24 +32,23 @@ func NewPublisher(brokers []string) (*Publisher, error) {
 	if err != nil {
 		return nil, fmt.Errorf("new kafka client: %w", err)
 	}
-	return &Publisher{client: client}, nil
+	return &Publisher{client: client, topic: topic}, nil
 }
 
 func (p *Publisher) PublishSubmissionCreated(ctx context.Context, e SubmissionCreatedEvent) error {
 	e.Event = "submission.created"
 	e.CreatedAt = time.Now().UnixNano()
-
 	payload, err := json.Marshal(e)
 	if err != nil {
 		return fmt.Errorf("marshal event: %w", err)
 	}
-
 	record := &kgo.Record{
-		Topic: "submission.lifecycle",
+		Topic: p.topic,
 		Key:   []byte(e.SubmissionID),
 		Value: payload,
 	}
-
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
 	if err := p.client.ProduceSync(ctx, record).FirstErr(); err != nil {
 		return fmt.Errorf("produce: %w", err)
 	}

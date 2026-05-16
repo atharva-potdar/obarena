@@ -7,23 +7,23 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
-const bucket = "submissions"
+const defaultBucket = "submissions"
 
 type Storage struct {
 	client *s3.Client
+	bucket string
 }
 
-func NewStorage(endpoint string) (*Storage, error) {
+func NewStorage(endpoint string, bucket string) (*Storage, error) {
+	if bucket == "" {
+		bucket = defaultBucket
+	}
 	cfg, err := config.LoadDefaultConfig(
 		context.Background(),
-		config.WithRegion("us-east-1"),
-		config.WithCredentialsProvider(
-			credentials.NewStaticCredentialsProvider("any", "any", ""),
-		),
+		config.WithRegion(envStr("AWS_REGION", "us-east-1")),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("load config: %w", err)
@@ -34,12 +34,12 @@ func NewStorage(endpoint string) (*Storage, error) {
 		o.UsePathStyle = true
 	})
 
-	return &Storage{client: client}, nil
+	return &Storage{client: client, bucket: bucket}, nil
 }
 
 func (s *Storage) Upload(ctx context.Context, key string, r io.Reader) error {
 	_, err := s.client.PutObject(ctx, &s3.PutObjectInput{
-		Bucket: aws.String(bucket),
+		Bucket: aws.String(s.bucket),
 		Key:    aws.String(key),
 		Body:   r,
 	})
@@ -51,7 +51,7 @@ func (s *Storage) Upload(ctx context.Context, key string, r io.Reader) error {
 
 func (s *Storage) Delete(ctx context.Context, key string) error {
 	_, err := s.client.DeleteObject(ctx, &s3.DeleteObjectInput{
-		Bucket: aws.String(bucket),
+		Bucket: aws.String(s.bucket),
 		Key:    aws.String(key),
 	})
 	if err != nil {

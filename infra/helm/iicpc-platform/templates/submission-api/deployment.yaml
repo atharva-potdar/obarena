@@ -26,8 +26,27 @@ spec:
           env:
             - name: REDPANDA_BROKERS
               value: "redpanda.platform.svc.cluster.local:9092"
+            - name: KAFKA_TOPIC
+              value: "submission.lifecycle"
+            - name: S3_BUCKET
+              value: "submissions"
             - name: SEAWEEDFS_ENDPOINT
               value: "http://seaweedfs.platform.svc.cluster.local:8333"
+            # TODO: When migrating from SeaweedFS to real AWS S3:
+            #   1. Set AWS_REGION to your target region (e.g. us-east-1)
+            #   2. Mount AWS credentials from a Secret:
+            #      - name: AWS_ACCESS_KEY_ID
+            #        valueFrom:
+            #          secretKeyRef:
+            #            name: iicpc-s3
+            #            key: access-key-id
+            #      - name: AWS_SECRET_ACCESS_KEY
+            #        valueFrom:
+            #          secretKeyRef:
+            #            name: iicpc-s3
+            #            key: secret-access-key
+            #   3. Remove SEAWEEDFS_ENDPOINT or point to real S3 endpoint
+            #   4. Optionally use IAM roles (IRSA) instead of static credentials
           ports:
             - name: http
               containerPort: 8080

@@ -1,0 +1,6 @@
+.git
+docs/
+infra/
+scripts/
+justfile
+README.md

@@ -56,15 +56,17 @@ func run() error {
 
 	seaweedfsEndpoint := envStr("SEAWEEDFS_ENDPOINT", "http://seaweedfs.platform.svc.cluster.local:8333")
 	redpandaBrokers := strings.Split(envStr("REDPANDA_BROKERS", "redpanda.platform.svc.cluster.local:9092"), ",")
+	kafkaTopic := envStr("KAFKA_TOPIC", "submission.lifecycle")
+	s3Bucket := envStr("S3_BUCKET", "submissions")
 	port := envStr("PORT", "8080")
 	maxUploadMB := envInt64("MAX_UPLOAD_SIZE_MB", 128)
 
-	storage, err := NewStorage(seaweedfsEndpoint)
+	storage, err := NewStorage(seaweedfsEndpoint, s3Bucket)
 	if err != nil {
 		return fmt.Errorf("init storage: %v", err)
 	}
 
-	publisher, err := NewPublisher(redpandaBrokers)
+	publisher, err := NewPublisher(redpandaBrokers, kafkaTopic)
 	if err != nil {
 		return fmt.Errorf("init publisher: %v", err)
 	}

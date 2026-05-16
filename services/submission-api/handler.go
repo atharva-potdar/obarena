@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"regexp"
 
@@ -39,7 +40,9 @@ func NewHandler(storage *Storage, publisher *Publisher, maxMB int64) *Handler {
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(v)
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		slog.Debug("writeJSON encode failed", "error", err)
+	}
 }
 
 func validateTarGz(r io.Reader) error {
@@ -47,7 +50,11 @@ func validateTarGz(r io.Reader) error {
 	if err != nil {
 		return fmt.Errorf("invalid gzip: %w", err)
 	}
-	defer gr.Close()
+	defer func() {
+		if err := gr.Close(); err != nil {
+			slog.Debug("gzip reader close failed", "error", err)
+		}
+	}()
 	tr := tar.NewReader(gr)
 	for {
 		_, err := tr.Next()
@@ -73,7 +80,11 @@ func (h *Handler) handleSubmit(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	defer r.MultipartForm.RemoveAll()
+	defer func() {
+		if err := r.MultipartForm.RemoveAll(); err != nil {
+			log.Debug("multipart cleanup failed", "error", err)
+		}
+	}()
 
 	language := r.FormValue("language")
 	if !allowedLanguages[language] {
@@ -100,7 +111,11 @@ func (h *Handler) handleSubmit(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing source file"})
 		return
 	}
-	defer file.Close()
+	defer func() {
+		if err := file.Close(); err != nil {
+			log.Debug("file close failed", "error", err)
+		}
+	}()
 
 	if err := validateTarGz(file); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid archive"})
