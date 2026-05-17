@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "==> Checking k3s installation..."
-if ! command -v k3s &>/dev/null; then
-  curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--write-kubeconfig-mode 644" sh -
-else
-  echo "k3s is already installed."
-fi
+K3S_ARGS="--write-kubeconfig-mode 644 \
+  --kubelet-arg=cpu-manager-policy=static \
+  --kubelet-arg=reserved-cpus=10,11 \
+  --kubelet-arg=cpu-manager-policy-options=full-pcpus-only=true"
+
+echo "==> Installing / upgrading k3s with static CPU pinning..."
+curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="$K3S_ARGS" sh -
+sudo rm -f /var/lib/kubelet/cpu_manager_state
+sudo systemctl restart k3s
 
 rc="$HOME/.$(basename "$SHELL")rc"
 echo "==> Configuring KUBECONFIG..."
@@ -29,4 +32,6 @@ else
   echo "Just is already installed."
 fi
 
+echo "==> Waiting for node to be ready..."
+kubectl wait --for=condition=Ready node --all --timeout=120s
 echo "==> Host setup complete!"
