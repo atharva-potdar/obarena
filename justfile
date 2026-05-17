@@ -22,6 +22,9 @@ bootstrap:
 push:
     bash scripts/push-images.sh
 
+lint:
+    golangci-lint run ./...
+
 helm-lint:
     helm lint infra/helm/obarena-platform/
 

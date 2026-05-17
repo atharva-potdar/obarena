@@ -1,0 +1,46 @@
+version: "2"
+
+run:
+  timeout: 5m
+  go: '1.26'
+
+linters:
+  default: standard
+  enable:
+    - revive
+    - errcheck
+    - staticcheck
+    - unused
+    - govet
+    - ineffassign
+    - bodyclose
+    - noctx
+    - gosec
+    - gocritic
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+
+settings:
+  govet:
+    enable-all: true
+    disable:
+      - fieldalignment
+  revive:
+    rules:
+      - name: exported
+        disabled: true
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - style
+      - performance
+    disabled-checks:
+      - hugeParam
+
+issues:
+  exclude-use-default: false
+  max-issues-per-linter: 0
+  max-same-issues: 0
