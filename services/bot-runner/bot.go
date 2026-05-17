@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -45,38 +44,6 @@ func NewBot(id int, endpoint string, seq Sequence) *Bot {
 }
 
 func (b *Bot) Run(ctx context.Context, duration time.Duration, ready chan<- struct{}) {
-	var conn *websocket.Conn
-	for {
-		if ctx.Err() != nil {
-			return
-		}
-		var err error
-		conn, _, err = websocket.Dial(ctx, b.endpoint, nil)
-		if err == nil {
-			break
-		}
-		if strings.Contains(err.Error(), "connection refused") {
-			slog.Info("bot warmup retrying", "bot", b.id, "error", err)
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(500 * time.Millisecond):
-			}
-			continue
-		}
-		slog.Error("bot warmup failed", "bot", b.id, "error", err)
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(500 * time.Millisecond):
-		}
-	}
-	defer func() {
-		if err := conn.Close(websocket.StatusNormalClosure, ""); err != nil {
-			slog.Error("bot close error", "bot", b.id, "error", err)
-		}
-	}()
-
 	type stepTemplate struct {
 		isCancel  bool
 		payload   []byte
@@ -102,56 +69,11 @@ func (b *Bot) Run(ctx context.Context, duration time.Duration, ready chan<- stru
 		}
 	}
 
-	if ready != nil {
-		ready <- struct{}{}
-	}
-
 	pending := make(map[string]pendingOrder)
 	var mu sync.Mutex
 	var inFlight atomic.Int32
-	errCh := make(chan error, 1)
 
-	// Reader Goroutine
-	go func() {
-		for {
-			_, rawBytes, err := conn.Read(ctx)
-			if err != nil {
-				select {
-				case errCh <- err:
-				default:
-				}
-				return
-			}
-			var msg IncomingMessage
-			if err := json.Unmarshal(rawBytes, &msg); err == nil {
-				mu.Lock()
-				if p, ok := pending[msg.OrderID]; ok {
-					switch msg.Type {
-					case "ack":
-						b.metrics.recordAck(time.Since(p.sentAt))
-						b.metrics.acksRecv++
-					case "fill":
-						b.metrics.recordFill(time.Since(p.sentAt))
-						b.metrics.fillsRecv++
-						if msg.Remaining == 0 {
-							delete(pending, msg.OrderID)
-							inFlight.Add(-1)
-						}
-					case "reject":
-						b.metrics.rejectsRecv++
-						delete(pending, msg.OrderID)
-						inFlight.Add(-1)
-					case "cancel_ack":
-						delete(pending, msg.OrderID)
-						inFlight.Add(-1)
-					}
-				}
-				mu.Unlock()
-			}
-		}
-	}()
-
-	// Cleanup Goroutine (Garbage Collector)
+	// Cleanup Goroutine (Garbage Collector) — runs once for the entire test
 	go func() {
 		ticker := time.NewTicker(2 * time.Second)
 		defer ticker.Stop()
@@ -178,60 +100,128 @@ func (b *Bot) Run(ctx context.Context, duration time.Duration, ready chan<- stru
 	iteration := 0
 	tagToID := make(map[string]string)
 
-	// Writer Loop
+	// Outer reconnect loop
 	for time.Now().Before(deadline) {
 		if ctx.Err() != nil {
 			return
 		}
-		select {
-		case err := <-errCh:
-			slog.Error("bot read error", "bot", b.id, "error", err)
-			mu.Lock()
-			b.metrics.staleOrders++
-			mu.Unlock()
-			return
-		default:
+
+		conn, _, err := websocket.Dial(ctx, b.endpoint, nil)
+		if err != nil {
+			slog.Warn("bot reconnect dial", "bot", b.id, "error", err)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(500 * time.Millisecond):
+			}
+			continue
 		}
 
-		for _, tmpl := range templates {
-			var oid string
-			var payload []byte
+		if ready != nil {
+			ready <- struct{}{}
+			ready = nil
+		}
 
-			if tmpl.isCancel {
-				targetID, ok := tagToID[tmpl.cancelTag]
-				if !ok {
-					continue
-				}
-				oid = targetID
-				payload = bytes.Replace(tmpl.payload, []byte("%s"), []byte(targetID), 1)
-			} else {
-				oid = orderID(b.id, iteration, tmpl.tag)
-				tagToID[tmpl.tag] = oid
-				payload = bytes.Replace(tmpl.payload, []byte("%s"), []byte(oid), 1)
+		errCh := make(chan error, 1)
 
-				// Backpressure check
-				for inFlight.Load() > 20 {
-					if ctx.Err() != nil {
-						return
+		// Reader Goroutine
+		go func() {
+			for {
+				_, rawBytes, err := conn.Read(ctx)
+				if err != nil {
+					select {
+					case errCh <- err:
+					default:
 					}
-					time.Sleep(1 * time.Millisecond)
+					return
 				}
-
-				mu.Lock()
-				pending[oid] = pendingOrder{time.Now()}
-				b.metrics.ordersSent++
-				inFlight.Add(1)
-				mu.Unlock()
+				var msg IncomingMessage
+				if err := json.Unmarshal(rawBytes, &msg); err == nil {
+					mu.Lock()
+					if p, ok := pending[msg.OrderID]; ok {
+						switch msg.Type {
+						case "ack":
+							b.metrics.recordAck(time.Since(p.sentAt))
+							b.metrics.acksRecv++
+						case "fill":
+							b.metrics.recordFill(time.Since(p.sentAt))
+							b.metrics.fillsRecv++
+							if msg.Remaining == 0 {
+								delete(pending, msg.OrderID)
+								inFlight.Add(-1)
+							}
+						case "reject":
+							b.metrics.rejectsRecv++
+							delete(pending, msg.OrderID)
+							inFlight.Add(-1)
+						case "cancel_ack":
+							delete(pending, msg.OrderID)
+							inFlight.Add(-1)
+						}
+					}
+					mu.Unlock()
+				}
 			}
+		}()
 
-			if err := conn.Write(ctx, websocket.MessageText, payload); err != nil {
-				slog.Error("bot write error", "bot", b.id, "error", err)
+		// Writer Loop (inner — breaks on error, outer loop reconnects)
+	writerLoop:
+		for time.Now().Before(deadline) {
+			if ctx.Err() != nil {
+				return
+			}
+			select {
+			case err := <-errCh:
+				slog.Error("bot read error", "bot", b.id, "error", err)
 				mu.Lock()
 				b.metrics.staleOrders++
 				mu.Unlock()
-				return
+				break writerLoop
+			default:
 			}
+
+			for _, tmpl := range templates {
+				var oid string
+				var payload []byte
+
+				if tmpl.isCancel {
+					targetID, ok := tagToID[tmpl.cancelTag]
+					if !ok {
+						continue
+					}
+					oid = targetID
+					payload = bytes.Replace(tmpl.payload, []byte("%s"), []byte(targetID), 1)
+				} else {
+					oid = orderID(b.id, iteration, tmpl.tag)
+					tagToID[tmpl.tag] = oid
+					payload = bytes.Replace(tmpl.payload, []byte("%s"), []byte(oid), 1)
+
+					// Backpressure check
+					for inFlight.Load() > 20 {
+						if ctx.Err() != nil {
+							return
+						}
+						time.Sleep(1 * time.Millisecond)
+					}
+
+					mu.Lock()
+					pending[oid] = pendingOrder{time.Now()}
+					b.metrics.ordersSent++
+					inFlight.Add(1)
+					mu.Unlock()
+				}
+
+				if err := conn.Write(ctx, websocket.MessageText, payload); err != nil {
+					slog.Error("bot write error", "bot", b.id, "error", err)
+					mu.Lock()
+					b.metrics.staleOrders++
+					mu.Unlock()
+					break writerLoop
+				}
+			}
+			iteration++
 		}
-		iteration++
+
+		_ = conn.Close(websocket.StatusNormalClosure, "")
 	}
 }
