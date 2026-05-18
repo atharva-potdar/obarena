@@ -1,7 +1,3 @@
-# k3s: dual platform NetworkPolicies (deny + allow) block API egress; disable locally.
-networkPolicies:
-  enabled: false
-
 # Local k3s (single node). Production values.yaml targets EKS node groups with
 # workload=platform|sandbox|bots labels and NoSchedule taints; vanilla k3s has neither.
 # Null clears keys merged from values.yaml (Helm deep-merge keeps {} but drops null).

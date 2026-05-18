@@ -52,15 +52,15 @@ build:
     docker save leaderboard-ws:dev | sudo k0s ctr images import -
 
 prefetch:
-    sudo k0s crictl pull docker.redpanda.com/redpandadata/redpanda:v26.1.7
-    sudo k0s crictl pull docker.io/timescale/timescaledb:latest-pg18
-    sudo k0s crictl pull docker.io/library/redis:8-alpine
-    sudo k0s crictl pull docker.io/chrislusf/seaweedfs:latest
-    sudo k0s crictl pull docker.io/curlimages/curl:latest
-    sudo k0s crictl pull docker.io/library/gcc:16-trixie
-    sudo k0s crictl pull docker.io/library/rust:1.95-alpine
-    sudo k0s crictl pull docker.io/library/golang:1.26-alpine
-    sudo k0s crictl pull docker.io/library/alpine:3.23
+    sudo k0s ctr -n k8s.io images pull docker.redpanda.com/redpandadata/redpanda:v26.1.7
+    sudo k0s ctr -n k8s.io images pull docker.io/timescale/timescaledb:latest-pg18
+    sudo k0s ctr -n k8s.io images pull docker.io/library/redis:8-alpine
+    sudo k0s ctr -n k8s.io images pull docker.io/chrislusf/seaweedfs:latest
+    sudo k0s ctr -n k8s.io images pull docker.io/curlimages/curl:latest
+    sudo k0s ctr -n k8s.io images pull docker.io/library/gcc:16-trixie
+    sudo k0s ctr -n k8s.io images pull docker.io/library/rust:1.95-alpine
+    sudo k0s ctr -n k8s.io images pull docker.io/library/golang:1.26-alpine
+    sudo k0s ctr -n k8s.io images pull docker.io/library/alpine:3.23
 
 infra-up:
     bash scripts/infra-up.sh
@@ -70,7 +70,7 @@ smoke-test:
 
 dev-teardown:
     helm uninstall obarena-platform --namespace platform || true
-    kubectl delete namespace platform builds sandboxes bots keda || true
+    k0s kubectl delete namespace platform builds sandboxes bots keda || true
 
 clean-cache:
     docker image prune -a -f
