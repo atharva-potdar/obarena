@@ -129,6 +129,7 @@ The `Hub` manages WebSocket client connections using a channel-based fan-out pat
 | `regCh` | Client registration | 64 |
 | `unregCh` | Client unregistration | 64 |
 | `msgCh` | Broadcast messages | 256 |
+| `quitCh` | Graceful shutdown signal | — |
 
 **Client lifecycle:**
 1. Connect → `hub.regCh <- client`
@@ -136,6 +137,8 @@ The `Hub` manages WebSocket client connections using a channel-based fan-out pat
 3. On disconnect → `hub.unregCh <- client` → `close(client.send)`
 
 **Broadcast:** Messages from `msgCh` are fanned out to all registered clients. Slow clients (send channel full) have messages dropped rather than blocking the hub.
+
+**WebSocket writer:** Sends a ping every 30 seconds to detect dead connections. If the ping fails or the context is cancelled, the writer exits.
 
 ## Redis Data Structures
 

@@ -145,7 +145,8 @@ Sent instead of ack when the order is malformed or violates rules. A reject is a
 | `invalid_price` | Limit order with `price <= 0` |
 | `duplicate_order_id` | `order_id` already exists in the orderbook |
 | `no_liquidity` | Market order could not fully fill (no opposing liquidity) |
-| `unknown_order` | Cancel references a non-existent or already-filled order |
+| `unknown_order` | Cancel references a non-existent, already-filled, or another session's order |
+| `unauthorized` | Cancel references an order owned by a different session |
 | `unknown_type` | Message `type` is neither `"order"` nor `"cancel"` |
 
 ## Matching Rules
@@ -170,5 +171,5 @@ Sent instead of ack when the order is malformed or violates rules. A reject is a
 |-----------|-------------|
 | Ack latency | Time from order frame received to ack frame sent (p50/p90/p99) |
 | Fill latency | Time from order frame received to fill frame sent (p50/p90/p99) |
-| Throughput | Max sustained orders/sec before rejects or connection drops |
+| Throughput | Max sustained orders/sec before send buffer (256) fills and rejects occur |
 | Correctness | `GET /orderbook` asserted against expected state after deterministic order sequences |

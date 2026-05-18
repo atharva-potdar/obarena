@@ -94,6 +94,8 @@ Confirms that the source archive has been successfully uploaded to the pre-signe
 | `KAFKA_TOPIC` | `submission.lifecycle` | Redpanda topic name |
 | `S3_BUCKET` | `submissions` | SeaweedFS bucket for source artifacts |
 | `AWS_REGION` | `us-east-1` | AWS region for S3 client |
+| `AWS_ACCESS_KEY_ID` | `any` | S3 access key |
+| `AWS_SECRET_ACCESS_KEY` | `any` | S3 secret key |
 | `PORT` | `8080` | HTTP listen port |
 | `MAX_UPLOAD_SIZE_MB` | `128` | Max upload size in MiB |
 
@@ -107,7 +109,7 @@ Confirms that the source archive has been successfully uploaded to the pre-signe
 
 ## Constraints
 
-- Only tar.gz archives accepted (validated before upload)
+- No file-type validation — build-service validates the tar.gz on download
 - Supported languages: `cpp`, `rust`, `go`
 - Max upload size: 128 MiB (configurable)
 - Submission ID is UUID v4 generated server-side
@@ -115,5 +117,8 @@ Confirms that the source archive has been successfully uploaded to the pre-signe
 - `X-Request-ID` header used for request correlation (generated if absent)
 - Graceful shutdown on SIGTERM/SIGINT with 15s timeout
 - No deduplication — each upload gets a new submission ID
-- On Kafka publish failure, orphaned S3 object is cleaned up
+
+## TODO
+
+- On Kafka publish failure the S3 object is orphaned — the `confirm` handler should call `storage.Delete()` on the artifact key before returning 500.
 

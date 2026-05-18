@@ -25,7 +25,7 @@ Runs as a K8s Job in `bots` namespace. Connects to sandbox pod in `sandboxes` na
 | `acks_recv` | int64 | Total acks received |
 | `fills_recv` | int64 | Total fills received |
 | `rejects_recv` | int64 | Total rejects received |
-| `conn_drops` | int64 | Connection drops/errors |
+| `stale_orders` | int64 | Orders that timed out without a response |
 | `ack_p50_us` | int64 | Ack latency p50 (microseconds) |
 | `ack_p90_us` | int64 | Ack latency p90 (microseconds) |
 | `ack_p99_us` | int64 | Ack latency p99 (microseconds) |
@@ -60,7 +60,7 @@ Runs as a K8s Job in `bots` namespace. Connects to sandbox pod in `sandboxes` na
    - Loops through assigned sequence templates until duration expires
    - Tracks pending orders with 5-second garbage collection timeout
    - Enforces backpressure: max 20 in-flight orders per bot
-3. Wait for all bots to signal readiness (warmup complete)
+3. Wait for 80% of bots to signal readiness (quorum) or 15-second warmup timeout
 4. Start measurement timer
 5. Wait for all bots to complete (duration expires or error)
 6. Merge per-bot metrics into aggregate
@@ -137,22 +137,25 @@ Each bot uses a unique price band: `base_price = (bot_id + 1) * 1000`. Bands are
 - **Ack latency**: hdrhistogram (range: 1µs to 60s, 3 significant figures)
 - **Fill latency**: hdrhistogram (same range)
 - **TPS**: `orders_sent / duration_seconds`
-- **Connection drops**: tracked on read errors, write errors, and 5-second pending order timeout
+- **Stale orders**: tracked on read errors, write errors, and 5-second pending order timeout (cleaned up every 2 seconds)
 - **Backpressure**: max 20 in-flight orders per bot; sleeps 1ms when exceeded
 
 ## Kafka Publish Flow
 
-- Uses async produce (`client.Produce()`) with callback for error logging
+- Uses sync produce (`client.ProduceSync()`) — blocks until each record is acknowledged
 - Only publishes if `TEST_RUN_ID` is non-empty and `REDPANDA_BROKERS` is configured
 - Key: `submission_id`
-- Falls back to logging if publish fails (does not block exit)
 - Client flushed before process exit
+
+## TODO
+
+- Kafka publish uses `ProduceSync()` which blocks on each record — should switch to async `Produce()` with callback so slow Redpanda doesn't delay process exit.
 
 ## Constraints
 
 - Runs as a K8s Job (not a long-running service)
 - Phase 1 always runs first, regardless of Phase 2 configuration
 - Each bot goroutine maintains its own WebSocket connection
-- Pending orders older than 5 seconds are garbage-collected and counted as connection drops
+- Pending orders older than 5 seconds are garbage-collected and counted as stale orders
 - Backpressure limit: 20 in-flight orders per bot
 - If `REDPANDA_BROKERS` is empty, metrics are not published (local testing mode)

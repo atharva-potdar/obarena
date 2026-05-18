@@ -85,6 +85,8 @@ Returns current test run status.
 | `NUM_BOTS` | `50` | Number of concurrent bot goroutines per runner |
 | `DURATION_SECONDS` | `60` | How long to run the bot fleet |
 | `JOB_TIMEOUT_SECONDS` | `120` | Max time to wait for bot runner Job to complete |
+| `WARMUP_SECONDS` | `15` | Sandbox warmup period before Job execution |
+| `SANDBOX_NAMESPACE` | `sandboxes` | Namespace where sandbox pods run |
 | `BOT_RUNNER_IMAGE` | `bot-runner:dev` | Container image for bot runner Jobs |
 
 ## Dependencies

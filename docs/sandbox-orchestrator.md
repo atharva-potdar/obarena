@@ -140,8 +140,8 @@ None. This service has no HTTP server.
 ## Constraints
 
 - Sandbox pods run in `sandboxes` namespace with seccomp + AppArmor isolation (no gVisor)
-- Network ingress restricted to `bots` namespace only (NetworkPolicy: `allow-ingress-from-bots`)
-- Network egress: only allowed to SeaweedFS in `platform` namespace on port 8333 (NetworkPolicy: `allow-seaweedfs-egress`)
+- Network ingress restricted to `bots` namespace only (NetworkPolicy: `sandboxes-ingress`)
+- Network egress: only allowed to SeaweedFS in `platform` namespace on port 8333 (NetworkPolicy: `sandboxes-egress`)
 - Binary must be a statically-linked executable
 - Binary size limit: 50MB (inherited from build service)
 - Sandbox timeout: 60 seconds (configurable) — time to reach healthy state
@@ -155,9 +155,6 @@ Uses the `sandbox-orchestrator` ServiceAccount (in `platform` namespace).
 Bound to `sandbox-pod-manager` Role in `sandboxes` namespace:
 - `pods`: create, get, list, watch, delete
 - `pods/log`: get
-
-Bound to `runtimeclass-reader` ClusterRole (cluster-wide):
-- `runtimeclasses`: get, list
 
 ## Helm Resources
 

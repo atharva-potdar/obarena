@@ -122,10 +122,9 @@ Every sandbox pod (running contestant code) enforces:
 | ServiceAccount | Namespace | Role | Scope | Permissions |
 |---------------|-----------|------|-------|-------------|
 | `sandbox-orchestrator` | platform | `sandbox-pod-manager` | `sandboxes` | pods: create/get/list/watch/delete, pods/log: get |
-| `sandbox-orchestrator` | platform | `runtimeclass-reader` | cluster | runtimeclasses: get/list |
 | `build-service` | platform | `build-pod-manager` | `builds` | pods: create/get/list/watch/delete, pods/exec: create, pods/log: get |
 | `bot-orchestrator` | platform | `bot-job-manager` | `bots` | jobs: create/get/list/watch/delete, pods: get/list/watch, pods/log: get |
-| `bot-orchestrator` | platform | `sandbox-pod-manager` | `sandboxes` | pods: create/get/list/watch/delete, pods/log: get |
+| `bot-orchestrator` | platform | `sandbox-pod-manager` | `sandboxes` | pods: create/get/list/watch/delete, pods/log: get (sandbox teardown after test) |
 
 ## Data Flow
 
@@ -162,4 +161,4 @@ Metrics
 |--------|------|---------|
 | SeaweedFS | 10Gi | Source artifacts + compiled binaries |
 | TimescaleDB | 10Gi | Telemetry events + submission scores |
-| Build artifacts | 10Gi | (defined in Helm, purpose TBD) |
+| Build artifacts | 10Gi | SeaweedFS builds bucket PVC — compiled binaries stored here after build-service compiles |

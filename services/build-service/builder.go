@@ -59,7 +59,7 @@ var buildImages = map[string]string{
 }
 
 // buildCommands returns the shell command to build in /workspace and produce /workspace/binary.
-// All binaries are statically linked for portability under gVisor.
+// All binaries are statically linked for portability.
 // C++ contestants use header-only libraries; we compile main.cpp directly.
 // Rust uses cargo with --offline for vendored deps.
 // Go uses -mod=vendor for vendored deps.

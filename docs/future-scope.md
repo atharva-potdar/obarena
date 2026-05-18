@@ -4,16 +4,13 @@
 
 ### [COMPLETED] KEDA Kafka-Triggered Autoscaling
 
-> [!NOTE]
-> **Status:** Fully Implemented. Event-driven autoscaling has been successfully set up using KEDA `ScaledObjects` triggered by Redpanda consumer group lag, ensuring efficient scaling independent of CPU metrics.
-
 **What:** Replace CPU-based HPAs on `submission-api`, `build-service`, `sandbox-orchestrator`, and `telemetry-ingester` with KEDA `ScaledObjects` using Kafka topic lag triggers on `submission.lifecycle`.
 
 **Why:** CPU is not just a lagging indicator — it's the wrong signal entirely. A consumer goroutine blocked on `PollFetches` waiting for messages uses near-zero CPU but is perfectly healthy. CPU-based HPA would scale it down. Kafka lag is the only meaningful signal for consumer scaling: replicas scale in direct proportion to the actual backlog of submissions to process. `maxReplicaCount` must be hardcapped to the Redpanda partition count per consumer group. Since build-service and sandbox-orchestrator consume `submission.lifecycle` in different consumer groups, they can scale independently — but scaling sandbox-orchestrator beyond partition count is wasteful since extra replicas will idle.
 
-### Node-Level Workload Isolation
+### [COMPLETED] Node-Level Workload Isolation
 
-**What:** Apply dedicated taints to sandbox nodes and configure `NodeAffinity` + tolerations so that platform namespace workloads (submission-api, build-service, Redpanda, TimescaleDB, Redis) are never scheduled on sandbox nodes, and vice versa.
+**What:** Apply dedicated taints to sandbox nodes and configure `nodeSelector` + tolerations so that platform namespace workloads (submission-api, build-service, Redpanda, TimescaleDB, Redis) are never scheduled on sandbox nodes, and vice versa.
 
 **Why:** Platform workloads introduce noisy-neighbor effects that contaminate latency measurements. TimescaleDB compaction, Redpanda log flushes, and queue processing spikes all compete for CPU and I/O on shared nodes. Isolating sandbox pods onto dedicated nodes ensures that p50/p90/p99 latency metrics reflect only the contestant's code quality, not infrastructure contention.
 
@@ -22,9 +19,6 @@
 ## Phase 2: eBPF Networking, L7 Security & Upload Architecture
 
 ### [COMPLETED] Cilium CNI Replacement
-
-> [!NOTE]
-> **Status:** Fully Implemented. Cilium replaces the default CNI with eBPF pod-to-pod networking, kube-proxy replacement, and L7 policy enforcement.
 
 **What:** Replace the default CNI (kube-proxy/iptables) with Cilium, leveraging eBPF for pod-to-pod networking and service load balancing.
 
@@ -40,12 +34,7 @@
 
 ### [COMPLETED] Pre-Signed S3 Uploads
 
-> [!NOTE]
-> **Status:** Fully Implemented. The `submission-api` utilizes a two-step S3 pre-signed upload initialization (`POST /submissions`) and confirmation (`POST /submissions/{id}/confirm`) mechanism, removing the Go process from the data path and scaling uploads seamlessly.
-
 **What:** Refactor `submission-api` `POST /submissions` to return a pre-signed SeaweedFS S3 upload URL instead of accepting the file through the Go backend. Clients upload `.tar.gz` files directly to SeaweedFS, then call a lightweight confirmation endpoint with the artifact key.
-
-**Why deferred over direct fix:** Pre-signed URLs eliminate the need for any static AWS credentials in artifact access — the InitContainer downloads directly via a time-limited URL rather than signing with SDK credentials. This is the proper fix path instead of patching the credential chain locally.
 
 **Why:** The current flow routes the entire file through the Go process, which must hold the upload in memory (or spill to disk) before forwarding to SeaweedFS. Under concurrent load, this causes OOMKills and disk I/O bottlenecks. Direct-to-S3 uploads eliminate the Go backend from the data path entirely, reducing memory footprint to a constant regardless of file size and removing the upload as a scaling bottleneck. Pre-signed URLs also let you enforce upload size limits at the SeaweedFS layer (via bucket policy or presigned URL expiration constraints) rather than in the Go process, which is more reliable and harder to bypass.
 
@@ -68,9 +57,11 @@
 **What:** Provision two distinct node pools in the cluster:
 
 - **Platform Pool**: runs all infrastructure (Redpanda, TimescaleDB, Redis, SeaweedFS) and platform services (submission-api, build-service, sandbox-orchestrator, bot-orchestrator, telemetry-ingester, leaderboard-ws)
-- **Sandbox Pool**: tainted to accept only sandbox pods (contestant matching engines), enforced via `NodeAffinity`
+- **Sandbox Pool**: tainted to accept only sandbox pods (contestant matching engines), enforced via `nodeSelector` + tolerations
 
 **Why:** Even with namespace-level isolation, shared node pools mean shared kernel scheduler, shared memory bandwidth, and shared network interfaces. Physical separation eliminates all cross-workload interference at the hardware level. This is the final step in ensuring that latency metrics are attributable solely to contestant code.
+
+**Progress:** Helm chart scheduling (`nodeSelector` + tolerations) is already wired up. What's missing is the Terraform provisioning of separate EKS node groups or equivalent k0s multi-node setup.
 
 **Caveat:** Node pool isolation interacts directly with CPU pinning. Even with dedicated sandbox nodes, if two sandbox pods land on the same node and both are pinned, they share memory bandwidth and L3 cache. True isolation requires one sandbox pod per node, which means the node pool sizing directly determines concurrent test capacity. A `c5.2xlarge` with 8 vCPUs can host at most one 2-core sandbox pod with the static CPU manager, because the remaining 6 cores are reserved for system pods and aren't allocatable as pinned cores without careful kubelet configuration. This significantly affects the cost model for production.
 
@@ -79,6 +70,8 @@
 **What:** Enable the Kubelet `static` CPU Manager policy on all sandbox pool nodes. Enforce the Guaranteed QoS class on all contestant pods by setting CPU requests equal to CPU limits (integer values only, e.g., `2` cores).
 
 **Why:** The default `none` CPU Manager policy allows the kernel scheduler to time-slice cores across all pods on a node, introducing context-switch latency that contaminates p90/p99 measurements. The `static` policy pins containers to exclusive CPU cores — no other pod can schedule on those cores for the lifetime of the container. Combined with Guaranteed QoS, this gives each matching engine uninterrupted, dedicated CPU capacity. The result is latency metrics that reflect only the efficiency of the contestant's matching algorithm, not kernel scheduling decisions.
+
+**Progress:** Sandbox pods already use Guaranteed QoS (CPU requests == limits = `2`, memory requests == limits = `512Mi`). What's missing is enabling `--cpu-manager-policy=static` on sandbox nodes' kubelets and adding admission control to reject fractional CPU requests on the `sandboxes` namespace.
 
 **Prerequisites:** The kubelet must be started with `--cpu-manager-policy=static` and the node must have integer CPU allocations available. On EKS managed node groups, this requires a custom launch template with a kubelet config file — document as a Terraform variable so it's not buried in instance type selection. The sandbox node group must use instance types with enough physical cores (`c5.2xlarge` with 8 vCPUs is a reasonable minimum for 2 pinned cores per contestant plus headroom for system pods). The static CPU manager only pins when containers request integer CPUs and the QoS class is Guaranteed; fractional requests silently fall back to the default scheduler. Admission control — either an OPA/Gatekeeper policy or a validating webhook — must enforce integer CPU requests on the `sandboxes` namespace. Without it, one misconfigured deployment breaks the fairness guarantee for all concurrent tests.
 

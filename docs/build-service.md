@@ -109,7 +109,7 @@ All binaries are statically linked for portability.
 | Image | Language-specific (see table above) |
 | Entrypoint | `sh -c "sleep infinity & wait $!"` |
 | Working directory | `/workspace` |
-| Volume | EmptyDir at `/workspace`, sizeLimit 512Mi |
+| Volumes | EmptyDir at `/workspace` (512Mi), EmptyDir at `/tmp` (unlimited) |
 | CPU request | 1 |
 | CPU limit | 2 |
 | Memory request | 512Mi |
@@ -143,7 +143,7 @@ Bound to `build-pod-manager` Role in `builds` namespace:
 | Memory limit | 1024Mi |
 | Autoscaling | KEDA Kafka (consumer group lag, max 4) |
 
-## Notes
+## TODO
 
-- Replaced CPU-based HPA with KEDA Kafka scaler on consumer group `build-service`
+- Download (30s), pod startup (60s), source injection (30s), build execution (120s), and binary upload (30s) timeouts are hardcoded in `builder.go` — should be configurable via env vars.
 

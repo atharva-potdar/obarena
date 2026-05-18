@@ -49,7 +49,7 @@ A lightweight ingestion layer implementing a two-step pre-signed S3 upload flow.
 
 Listens for `submission.created` events. Downloads the source from SeaweedFS, spins up an isolated build pod in the `builds` namespace (no network egress), compiles the code using a language-specific compiler image, uploads the resulting binary back to SeaweedFS, and publishes `build.complete` or `build.failed`.
 
-The build pod uses `trap 'exit 0' TERM; sleep infinity & wait $!` as its entrypoint so it exits cleanly when deleted, rather than showing as Failed in `kubectl get pods`.
+The build pod uses `sleep infinity & wait $!` as its entrypoint so it exits cleanly when deleted, rather than showing as Failed in `kubectl get pods`.
 
 ### sandbox-orchestrator
 
@@ -115,8 +115,8 @@ The Terraform provisions an EKS cluster with three node groups (platform, sandbo
 
 The composite score is a weighted combination of three dimensions:
 
-- **Latency** (35%) — based on ack p99 latency, normalized against a ceiling of 100ms
-- **Throughput** (35%) — orders per second, normalized against a ceiling of 10,000 TPS
+- **Latency** (35%) — weighted combination of ack p50 (20%), p90 (30%), p99 (50%), normalized against a ceiling of 50ms
+- **Throughput** (35%) — orders per second, normalized against a ceiling of 1,000 TPS
 - **Correctness** (30%) — derived from the Phase 1 assertion pass rate (33 assertions across 5 sequences)
 
 Each dimension is clamped to [0, 1]. The final score is in [0, 1], where higher is better.

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Consumes `bot.metrics` events from Redpanda. For each event, writes raw telemetry to TimescaleDB for historical analysis and computes a composite score which is written to Redis for live leaderboard ranking. Single responsibility — no HTTP endpoints, no Kubernetes API calls, no bot logic.
+Consumes `bot.metrics` events from Redpanda. For each event, writes raw telemetry to TimescaleDB for historical analysis and computes a composite score which is written to Redis for live leaderboard ranking. Single responsibility — no Kubernetes API calls, no bot logic.
 
 ## Position in Pipeline
 
@@ -27,7 +27,7 @@ Final processing stage. Consumes from `bot.metrics` (published by bot-runner Job
 | `acks_recv` | int64 | Total acknowledgments received |
 | `fills_recv` | int64 | Total fills received |
 | `rejects_recv` | int64 | Total rejects received |
-| `conn_drops` | int64 | Connection drops/errors |
+| `stale_orders` | int64 | Orders that timed out without a response |
 | `ack_p50_us` | int64 | Ack latency p50 (microseconds) |
 | `ack_p90_us` | int64 | Ack latency p90 (microseconds) |
 | `ack_p99_us` | int64 | Ack latency p99 (microseconds) |
