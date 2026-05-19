@@ -10,4 +10,4 @@ To trigger a test run via bot-orchestrator:
 (If executing externally, port-forward the bot-orchestrator service first)
 
 To check Horizontal Pod Autoscaler status:
-  kubectl get hpa -n platform
+  KUBECONFIG=~/.kube/config k0s kubectl get hpa -n platform

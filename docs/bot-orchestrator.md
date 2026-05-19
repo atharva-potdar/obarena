@@ -82,6 +82,7 @@ Returns current test run status.
 | Env Var | Default | Description |
 |---------|---------|-------------|
 | `REDPANDA_BROKERS` | `redpanda.platform.svc.cluster.local:9092` | Comma-separated broker list |
+| `KAFKA_TOPIC` | `submission.lifecycle` | Topic for consumption and production |
 | `NUM_BOTS` | `50` | Number of concurrent bot goroutines per runner |
 | `DURATION_SECONDS` | `60` | How long to run the bot fleet |
 | `JOB_TIMEOUT_SECONDS` | `120` | Max time to wait for bot runner Job to complete |
@@ -140,11 +141,13 @@ Returns current test run status.
 Uses the `bot-orchestrator` ServiceAccount (in `platform` namespace).
 Bound to `bot-job-manager` Role in `bots` namespace:
 
-- `jobs`: create, get, list, watch, delete
-- `pods`: get, list, watch
+- `jobs`: create, watch, delete
+
+Also bound to `sandbox-pod-manager` Role in the `sandboxes` namespace via the `bot-orchestrator-sandbox-cleanup` RoleBinding, which grants:
+- `pods`: create, get, list, watch, delete
 - `pods/log`: get
 
-Also deletes sandbox pods in the `sandboxes` namespace, authorized via the `bot-orchestrator-sandbox-cleanup` RoleBinding in the `sandboxes` namespace (which binds the `platform/bot-orchestrator` ServiceAccount to the `sandbox-pod-manager` Role).
+This allows sandbox pod deletion after test completion.
 
 ## Helm Resources
 

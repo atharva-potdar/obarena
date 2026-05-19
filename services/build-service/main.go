@@ -1,3 +1,5 @@
+// Package main implements the build service, which consumes submission events,
+// orchestrates compilation via isolated Kubernetes pods, and publishes build results.
 package main
 
 import (

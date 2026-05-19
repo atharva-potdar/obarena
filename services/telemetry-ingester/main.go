@@ -1,3 +1,5 @@
+// Package main implements the telemetry ingester, which consumes metrics from bot runners,
+// computes leaderboard scores, and persists results to TimescaleDB and Redis.
 package main
 
 import (

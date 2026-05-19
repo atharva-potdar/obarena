@@ -1,3 +1,5 @@
+// Package main implements the bot runner, which performs synchronous correctness validation
+// and asynchronous load testing against a contestant's matching engine.
 package main
 
 import (

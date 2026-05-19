@@ -2,16 +2,16 @@
 
 ## Purpose
 
-Consumes `build.complete` events from Redpanda. For each event, deploys the compiled binary as an isolated pod in the `sandboxes` namespace using seccomp + AppArmor sandboxing (not gVisor), waits for the submission to become healthy via readiness probe, and publishes a lifecycle event with the pod's connection details. Single responsibility — no HTTP endpoints, no authentication, no build logic.
+Consumes `build.complete` events from Redpanda. For each event, deploys the compiled binary as an isolated pod in the `sandboxes` namespace using seccomp + AppArmor sandboxing, waits for the submission to become healthy via readiness probe, and publishes a lifecycle event with the pod's connection details. Single responsibility — no HTTP endpoints, no authentication, no build logic.
 
 ## Position in Pipeline
 
-Third service in the pipeline. Consumes from `submission.lifecycle` (after build-service) → produces to `submission.lifecycle` (consumed by bot-orchestrator).
+Third service in the pipeline. Consumes from `KAFKA_TOPIC` (default `submission.lifecycle` — after build-service) → produces to `KAFKA_TOPIC` (consumed by bot-orchestrator).
 
 ## Event Contract
 
-**Reads from:** `submission.lifecycle` (consumer group: `sandbox-orchestrator`)
-**Writes to:** `submission.lifecycle`
+**Reads from:** `submission.lifecycle` (configurable via `KAFKA_TOPIC`)
+**Writes to:** `submission.lifecycle` (configurable via `KAFKA_TOPIC`)
 
 **Consumer group:** `sandbox-orchestrator`
 
@@ -50,11 +50,11 @@ Third service in the pipeline. Consumes from `submission.lifecycle` (after build
 
 ## Operational Flow
 
-1. Consume `build.complete` event from Redpanda (consumer group: `sandbox-orchestrator`)
-2. Create sandbox pod in `sandboxes` namespace with security-hardened spec
-3. InitContainer (`alpine:3.23`) downloads binary from SeaweedFS via wget to EmptyDir
-4. Main container (`alpine:3.23`) executes the binary directly from `/sandbox/binary`
-5. Wait for pod to reach Running phase and Ready condition (via HTTP readiness probe on `/healthz`)
+1. Consume `build.complete` event from Redpanda.
+2. Create sandbox pod in `sandboxes` namespace with security-hardened spec.
+3. InitContainer (`alpine:3.23`) downloads binary from SeaweedFS via `wget` to EmptyDir.
+4. Main container (`alpine:3.23`) executes the binary directly from `/sandbox/binary`.
+5. Wait for pod to reach Running phase and Ready condition (via HTTP readiness probe on `/healthz`).
 6. On success:
    - Get pod IP
    - Publish `sandbox.ready` event with pod IP and port (8080 for both HTTP and WebSocket)
@@ -73,6 +73,7 @@ None. This service has no HTTP server.
 |---------|---------|-------------|
 | `SEAWEEDFS_ENDPOINT` | `http://seaweedfs.platform.svc.cluster.local:8333` | SeaweedFS S3 endpoint |
 | `REDPANDA_BROKERS` | `redpanda.platform.svc.cluster.local:9092` | Comma-separated broker list |
+| `KAFKA_TOPIC` | `submission.lifecycle` | Topic for consumption and production |
 | `SANDBOX_TIMEOUT_SECONDS` | `60` | Max time to wait for sandbox to become healthy |
 | `MAX_LOG_BYTES` | `4096` | Max pod log output captured on failure |
 | `SANDBOX_CPU_REQUEST` | `2` | CPU request for sandbox pods |
@@ -88,11 +89,10 @@ None. This service has no HTTP server.
 
 ## Dependencies
 
-- SeaweedFS in `platform` namespace (S3-compatible storage, bucket: `builds`)
+- SeaweedFS in `platform` namespace
 - Redpanda in `platform` namespace
 - Kubernetes API (in-cluster config)
 - `github.com/twmb/franz-go` — Redpanda consumer/producer
-- `github.com/aws/aws-sdk-go-v2` — S3 client
 - `k8s.io/client-go` — Kubernetes client
 
 ## Sandbox Pod Spec
@@ -121,8 +121,8 @@ None. This service has no HTTP server.
 
 | Resource | Request | Limit |
 |----------|---------|-------|
-| CPU | 2 | 2 |
-| Memory | 512Mi | 512Mi |
+| CPU | Inherits from env vars | Inherits from env vars |
+| Memory | Inherits from env vars | Inherits from env vars |
 
 ### Security Context
 
@@ -139,14 +139,13 @@ None. This service has no HTTP server.
 
 ## Constraints
 
-- Sandbox pods run in `sandboxes` namespace with seccomp + AppArmor isolation (no gVisor)
-- Network ingress restricted to `bots` namespace only (NetworkPolicy: `sandboxes-ingress`)
-- Network egress: only allowed to SeaweedFS in `platform` namespace on port 8333 (NetworkPolicy: `sandboxes-egress`)
-- Binary must be a statically-linked executable
-- Binary size limit: 50MB (inherited from build service)
-- Sandbox timeout: 60 seconds (configurable) — time to reach healthy state
-- One sandbox per submission
-- Failed sandboxes are cleaned up automatically
+- Sandbox pods run in `sandboxes` namespace with seccomp + AppArmor isolation (no gVisor).
+- Network ingress restricted to `bots` namespace only (NetworkPolicy).
+- Network egress allowed ONLY to SeaweedFS (ports 8333 and 8080) and DNS (NetworkPolicy).
+- Binary must be a statically-linked executable.
+- Sandbox timeout: 60 seconds (configurable) — time to reach healthy state.
+- One sandbox per submission.
+- Failed sandboxes are cleaned up automatically.
 
 ## RBAC
 
@@ -165,11 +164,3 @@ Bound to `sandbox-pod-manager` Role in `sandboxes` namespace:
 | Memory request | 128Mi |
 | Memory limit | 256Mi |
 | Autoscaling | KEDA Kafka (consumer group lag, max 4) |
-
-## Notes
-
-- Replaced CPU-based HPA with KEDA Kafka scaler on consumer group `sandbox-orchestrator`
-
-## TODO
-
-- S3 credentials use static `credentials.NewStaticCredentialsProvider("any", "any", "")` — should migrate to Helm-managed secrets or pre-signed URLs. (All other refactoring tasks including structured logging `slog`, `run()` helper, and parameterizing Kafka topics have been completed.)

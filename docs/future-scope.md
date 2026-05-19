@@ -26,7 +26,7 @@
 
 **Implementation:** Deployed via Ansible playbook (`site.yml`) on both bare metal and cloud. Uses VXLAN tunnel mode for portability, kube-proxy replacement, and Hubble for observability.
 
-### L7 Default-Deny Egress for Sandboxes
+### [COMPLETED] L7 Default-Deny Egress for Sandboxes
 
 **What:** Deploy Cilium `CiliumNetworkPolicy` with default-deny egress on all sandbox pods. Whitelist only the required destinations: CoreDNS (UDP/TCP 53), Redpanda (TCP 9092), Kubernetes API (TCP 443), and SeaweedFS (TCP 8333). All other egress is denied at L7.
 

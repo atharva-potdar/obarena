@@ -1,3 +1,5 @@
+// Package main implements the submission API, accepting code uploads,
+// writing source artifacts to SeaweedFS, and triggering the build pipeline.
 package main
 
 import (

@@ -1,3 +1,5 @@
+// Package main implements the bot orchestrator, which consumes sandbox readiness events,
+// spawns bot runner Jobs to load test the sandbox, and handles cleanup.
 package main
 
 import (

@@ -1,3 +1,5 @@
+// Package main implements the sandbox orchestrator, which consumes build events,
+// deploys contestant binaries in isolated sandboxes, and publishes readiness events.
 package main
 
 import (

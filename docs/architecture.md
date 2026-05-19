@@ -32,8 +32,8 @@ flowchart LR
     K -->|WebSocket| L[Browser Frontend]
 
     D -->|S3 GET| M
-    D -->|S3 PUT| N[(SeaweedFS\nbuilds bucket)]
-    E -->|S3 GET| N
+    D -->|S3 PUT| M
+    E -->|S3 GET| M
     I -->|batch insert| O[(TimescaleDB)]
 ```
 
@@ -65,12 +65,14 @@ flowchart LR
 
 ## Namespace Isolation Model
 
+Network isolation is enforced using `CiliumNetworkPolicy` resources (L7-aware), rather than vanilla Kubernetes `NetworkPolicy`.
+
 | Namespace | Contents | Network Policy |
 |-----------|----------|----------------|
 | `platform` | All services, Redpanda, Redis, TimescaleDB, SeaweedFS | Default deny egress; explicit allow for DNS, K8s API, Redpanda, Redis, TimescaleDB, SeaweedFS, and all other namespaces |
-| `builds` | Build pods (ephemeral) | Default deny egress (no network during compilation) |
-| `sandboxes` | Sandbox pods (ephemeral) | Ingress from `bots` only; egress to SeaweedFS only |
-| `bots` | Bot runner Jobs (ephemeral) | Egress to `sandboxes`, `platform` (Redpanda only), and DNS |
+| `builds` | Build pods (ephemeral) | Default deny egress; egress allowed *only* to SeaweedFS (ports 8333, 8080) and DNS |
+| `sandboxes` | Sandbox pods (ephemeral) | Default deny egress; ingress from `bots` only; egress to SeaweedFS (ports 8333, 8080) and DNS only |
+| `bots` | Bot runner Jobs (ephemeral) | Default deny egress; egress to `sandboxes`, `platform` (Redpanda only), and DNS |
 
 ### Cross-Namespace Communication
 
@@ -80,7 +82,8 @@ platform services → sandboxes namespace : K8s API (create/manage sandbox pods)
 platform services → bots namespace      : K8s API (create/manage bot Jobs)
 bots namespace → sandboxes namespace    : WebSocket (load test traffic)
 bots namespace → platform namespace     : Redpanda (publish metrics)
-sandboxes namespace → platform namespace: SeaweedFS (binary download, InitContainer only)
+sandboxes namespace → platform namespace: SeaweedFS (binary download via InitContainer)
+builds namespace → platform namespace   : SeaweedFS (source download and binary upload via InitContainers)
 ```
 
 ## Security Boundaries
@@ -99,13 +102,19 @@ Every sandbox pod (running contestant code) enforces:
 | AppArmor | `type: RuntimeDefault` |
 | Service account | `automountServiceAccountToken: false` |
 | Disk | EmptyDir with 256Mi limit at `/sandbox`, unlimited at `/tmp` |
-| Network | Ingress from `bots` only, egress to SeaweedFS only |
 
 ### Build Pod Security
 
+Build pods operate similarly to sandboxes:
+
 | Control | Configuration |
 |---------|--------------|
-| Network | Default deny egress (no internet access) |
+| User | `runAsUser: 65534` (nobody), `runAsNonRoot: true` |
+| Privilege escalation | `allowPrivilegeEscalation: false` |
+| Filesystem | `readOnlyRootFilesystem: true` |
+| Capabilities | `drop: ["ALL"]` |
+| Seccomp | `type: RuntimeDefault` |
+| AppArmor | `type: RuntimeDefault` |
 | Workspace | EmptyDir with 512Mi limit |
 | Restart | `Never` |
 
@@ -113,7 +122,6 @@ Every sandbox pod (running contestant code) enforces:
 
 | Control | Configuration |
 |---------|--------------|
-| Network | Egress restricted to `sandboxes`, Redpanda, and DNS |
 | Restart | `Never` |
 | Backoff limit | 0 (no retries) |
 
@@ -131,10 +139,10 @@ Every sandbox pod (running contestant code) enforces:
 ```
 Source Code (tar.gz)
   → client requests pre-signed URL from submission-api and uploads directly to SeaweedFS (submissions bucket)
-  → build-service downloads from SeaweedFS
+  → build-service downloads from SeaweedFS via presigned URL (download-source InitContainer)
   → build-service compiles in isolated pod
-  → build-service uploads binary to SeaweedFS (builds bucket)
-  → sandbox-orchestrator downloads binary via InitContainer
+  → build-service uploads binary to SeaweedFS via presigned URL (upload-binary InitContainer)
+  → sandbox-orchestrator downloads binary via presigned URL (InitContainer)
   → sandbox pod executes binary
 
 Metrics
@@ -159,6 +167,5 @@ Metrics
 
 | Volume | Size | Purpose |
 |--------|------|---------|
-| SeaweedFS | 10Gi | Source artifacts + compiled binaries |
-| TimescaleDB | 10Gi | Telemetry events + submission scores |
-| Build artifacts | 10Gi | SeaweedFS builds bucket PVC — compiled binaries stored here after build-service compiles |
+| SeaweedFS | 10Gi | PVC mapped to the SeaweedFS volume server. All source artifacts and compiled binaries are stored here. |
+| TimescaleDB | 10Gi | PVC mapped to TimescaleDB. Telemetry events and submission scores are stored here. |

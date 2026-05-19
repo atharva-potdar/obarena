@@ -2,18 +2,18 @@
 
 ## Purpose
 
-Consumes `submission.created` events from Redpanda. For each event, downloads the source artifact from SeaweedFS, spawns an isolated build pod in the `builds` namespace, compiles the code using a language-specific toolchain, uploads the resulting binary back to SeaweedFS, and publishes a lifecycle event with the result. Single responsibility — no HTTP endpoints, no authentication, no sandboxing.
+Consumes `submission.created` events from Redpanda. For each event, spawns an isolated build pod in the `builds` namespace that uses an init-container pipeline and pre-signed S3 URLs to download the source artifact, compile it, and upload the resulting binary back to SeaweedFS. Once the pod completes, the service publishes a lifecycle event with the result. Single responsibility — no HTTP endpoints, no authentication.
 
 ## Position in Pipeline
 
-Second service in the pipeline. Consumes from `submission.lifecycle` (after submission-api) → produces to `submission.lifecycle` (consumed by sandbox-orchestrator).
+Second service in the pipeline. Consumes from the topic defined by `KAFKA_TOPIC` (default: `submission.lifecycle` — after submission-api) → produces to `submission.lifecycle` (consumed by sandbox-orchestrator).
 
 ## Event Contract
 
 **Consumer group:** `build-service`
 
-**Reads from:** `submission.lifecycle`
-**Writes to:** `submission.lifecycle`
+**Reads from:** `submission.lifecycle` (configurable via `KAFKA_TOPIC`)
+**Writes to:** `submission.lifecycle` (configurable via `KAFKA_TOPIC`)
 
 ### Consumed: submission.created
 
@@ -48,22 +48,20 @@ Second service in the pipeline. Consumes from `submission.lifecycle` (after subm
 
 ## Operational Flow
 
-1. Consume `submission.created` event from Redpanda (consumer group: `build-service`)
-2. Download source tar.gz from SeaweedFS at `event.artifact_path`
-3. Validate tar.gz: no symlinks, no path traversal, valid gzip
-4. Create build pod in `builds` namespace with language-specific image
-5. Wait for pod to reach Running phase
-6. Stream source into pod via K8s exec API (`tar xzf - -C /workspace`)
-7. Execute language-specific build command via K8s exec API
-8. On success:
-   - Verify binary exists and is under 50MB
-   - Read binary from pod via K8s exec API
-   - Upload to SeaweedFS at `builds/{submission_id}/binary`
-   - Publish `build.complete` event
-9. On failure:
-   - Publish `build.failed` event with truncated compiler stderr
-10. Delete build pod (always, regardless of outcome)
-11. Commit consumer offsets
+1. Consume `submission.created` event from Redpanda.
+2. Generate pre-signed GET URL for the source tarball and pre-signed PUT URL for the target binary in SeaweedFS. Note: The `s3.PresignClient` is created on-the-fly for each URL generation (no stored field).
+3. Create a build pod in the `builds` namespace using a 3-init-container architecture:
+   - **`download-source`**: Uses `wget` to pull the tarball via the GET URL.
+   - **`build`**: Extracts the tarball and runs the language-specific compiler.
+   - **`upload-binary`**: Uses `curl` to upload the compiled binary via the PUT URL.
+4. Wait for the pod to complete (watching for `Succeeded` or `Failed` phase).
+5. On success (pod reaches `Succeeded`):
+   - Publish `build.complete` event.
+6. On failure (pod reaches `Failed` or times out):
+   - Fetch the pod logs from the `build` init container.
+   - Publish `build.failed` event with truncated compiler stderr.
+7. Delete build pod (always, regardless of outcome).
+8. Commit consumer offsets.
 
 ## Endpoints
 
@@ -75,11 +73,7 @@ None. This service has no HTTP server.
 |---------|---------|-------------|
 | `SEAWEEDFS_ENDPOINT` | `http://seaweedfs.platform.svc.cluster.local:8333` | SeaweedFS S3 endpoint |
 | `REDPANDA_BROKERS` | `redpanda.platform.svc.cluster.local:9092` | Comma-separated broker list |
-| `DOWNLOAD_TIMEOUT_SECONDS` | `30` | Max time to download source archive |
-| `POD_START_TIMEOUT_SECONDS` | `60` | Max time to wait for build pod to reach Running |
-| `INJECT_TIMEOUT_SECONDS` | `30` | Max time to inject source into pod |
-| `BUILD_TIMEOUT_SECONDS` | `120` | Max time for the build command to complete |
-| `UPLOAD_TIMEOUT_SECONDS` | `30` | Max time to upload binary to SeaweedFS |
+| `KAFKA_TOPIC` | `submission.lifecycle` | Topic for consumption and production |
 | `MAX_LOG_BYTES` | `4096` | Max compiler output captured on failure |
 
 ## Dependencies
@@ -106,23 +100,18 @@ All binaries are statically linked for portability.
 | Property | Value |
 |----------|-------|
 | Namespace | `builds` |
-| Image | Language-specific (see table above) |
-| Entrypoint | `sh -c "sleep infinity & wait $!"` |
-| Working directory | `/workspace` |
+| InitContainers | `download-source` (`alpine:3.23`), `build` (Language-specific), `upload-binary` (`alpine/curl:8.9.1`) |
+| Main Container | `done` (`alpine:3.23`, runs `true` to immediately transition to Succeeded) |
+| Security Context | `runAsNonRoot: true`, `runAsUser: 65534`, `readOnlyRootFilesystem: true`, `drop: ALL`, `seccompProfile: RuntimeDefault`, `appArmorProfile: RuntimeDefault` |
 | Volumes | EmptyDir at `/workspace` (512Mi), EmptyDir at `/tmp` (unlimited) |
-| CPU request | 1 |
-| CPU limit | 2 |
-| Memory request | 512Mi |
-| Memory limit | 2Gi |
+| Resources (Build) | CPU: 1 request / 2 limit, Memory: 512Mi request / 2Gi limit |
 
 ## Constraints
 
-- Build pods run in `builds` namespace with default-deny egress NetworkPolicy
-- No network access during build — all dependencies must be vendored
-- Binary size limit: 50MB
-- Source archive validated for symlinks and path traversal before extraction
-- Build pod always deleted after completion (success or failure)
-- Consumer group `build-service` ensures each submission is processed once
+- Build pods run in the `builds` namespace with a CiliumNetworkPolicy allowing egress *only* to SeaweedFS (ports 8333 and 8080) and DNS.
+- No general internet access during build — all dependencies must be vendored.
+- Build pod always deleted after completion (success or failure).
+- Consumer group `build-service` ensures each submission is processed once.
 
 ## RBAC
 
@@ -130,7 +119,6 @@ Uses the `build-service` ServiceAccount (in `platform` namespace).
 Bound to `build-pod-manager` Role in `builds` namespace:
 
 - `pods`: create, get, list, watch, delete
-- `pods/exec`: create
 - `pods/log`: get
 
 ## Helm Resources
@@ -142,8 +130,3 @@ Bound to `build-pod-manager` Role in `builds` namespace:
 | Memory request | 512Mi |
 | Memory limit | 1024Mi |
 | Autoscaling | KEDA Kafka (consumer group lag, max 4) |
-
-## TODO
-
-- Download (30s), pod startup (60s), source injection (30s), build execution (120s), and binary upload (30s) timeouts are hardcoded in `builder.go` — should be configurable via env vars.
-

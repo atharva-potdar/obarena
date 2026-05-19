@@ -1,3 +1,5 @@
+// Package main implements the leaderboard WebSocket service, which streams live
+// scoring updates from Redis pub/sub to frontend clients.
 package main
 
 import (

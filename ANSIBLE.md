@@ -8,7 +8,7 @@ Linux (bare metal) and designed to work on AWS (Ubuntu 22.04+, AL2023).
 
 ```
 .
-├── site.yml              # Main playbook
+├── site.yml              # Main playbook: installs k0s, Helm, Cilium, Longhorn, and prerequisites
 ├── inventory.ini         # Target hosts — edit before running
 └── group_vars/
     └── all.yml           # Variables — review before running
@@ -34,14 +34,15 @@ AWS (cloud):
 
 **2. Review `group_vars/all.yml`**
 
-Key values to confirm:
+Key values to confirm (defaults are tuned for local dev / single node):
 
-- `pod_cidr` — must not overlap with your node network or VPC CIDR
-- `service_cidr` — must not overlap with your VPC CIDR
-- `cilium_version` — pin this for reproducibility
-- `helm_version` — pin this for reproducibility
-- `longhorn_version` — pin this for reproducibility
-- `longhorn_replica_count` — replica count for Longhorn (default: 1 for local dev)
+- `pod_cidr: "172.16.0.0/16"` — must not overlap with your node network or VPC CIDR
+- `service_cidr: "10.96.0.0/12"` — must not overlap with your VPC CIDR
+- `k0s_version: "v1.35.4+k0s.0"`
+- `cilium_version: "1.19.4"`
+- `helm_version: "v4.1.4"`
+- `longhorn_version: "1.11.2"`
+- `longhorn_replica_count: 1` — default 1 for local dev, increase for prod cluster
 
 ## Running
 
@@ -55,6 +56,10 @@ ansible-playbook -i inventory.ini site.yml
 
 ## Notes
 
+- **kubectl interaction**: After the playbook completes, a kubeconfig is placed in `/home/<user>/.kube/config`. To interact with the cluster, always use:
+  ```bash
+  KUBECONFIG=~/.kube/config k0s kubectl <command>
+  ```
 - `--enable-worker --no-taints` is used instead of `--single` so the cluster
   can be expanded to multi-node later without reinstalling.
 - Pod CIDR `172.16.0.0/16` is chosen to avoid conflict with AWS VPC

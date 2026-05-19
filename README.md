@@ -14,6 +14,8 @@ Run the Ansible playbook in `site.yml` to install k0s, Cilium, Helm, and Longhor
 
 That's the entire workflow: `just` brings up the platform from scratch.
 
+> **Note:** Whenever you need to interact with the cluster manually, ensure you use the `KUBECONFIG=~/.kube/config k0s kubectl` pattern instead of a bare `kubectl` command. This ensures you are interacting with the correct k0s cluster context.
+
 ## Why This Architecture
 
 The problem is straightforward: accept code, compile it, run it, test it under load, score it, and show results — all while keeping untrusted code isolated and the pipeline scalable.
@@ -26,9 +28,9 @@ Kubernetes handles the orchestration. k0s makes it painless to run locally — i
 
 ### On Sandboxing
 
-The original design used gVisor for sandbox isolation. It was removed in favor of native container security: seccomp profiles, AppArmor, read-only root filesystems, dropped capabilities, and network policies. The tradeoff is that gVisor provides a separate kernel (runsc), while the current approach relies on the host kernel with syscall filtering. For a competitive programming context where the binary is already statically linked and runs for a bounded duration, the native approach is simpler to deploy and debug while still providing meaningful isolation.
+The platform leverages native container security for isolation: seccomp profiles, AppArmor, read-only root filesystems, dropped capabilities, and strict network policies (CiliumNetworkPolicy). For a competitive programming context where the binary is statically linked and runs for a bounded duration, this approach is simple to deploy and debug while still providing robust security boundaries.
 
-Build pods don't run in a sandbox at all — they're isolated by namespace and network policy (no egress), and they use vetted compiler images. The risk of a malicious build escaping is accepted in favor of build compatibility; some language toolchains don't play well with additional sandboxing layers.
+Build pods also run with a restrictive security context (non-root, read-only rootfs, dropped capabilities) and limited network egress (only to SeaweedFS for downloading source and uploading the binary, plus DNS).
 
 ## The Pipeline
 
@@ -46,9 +48,7 @@ A lightweight ingestion layer implementing a two-step pre-signed S3 upload flow.
 
 ### build-service
 
-Listens for `submission.created` events. Downloads the source from SeaweedFS, spins up an isolated build pod in the `builds` namespace (no network egress), compiles the code using a language-specific compiler image, uploads the resulting binary back to SeaweedFS, and publishes `build.complete` or `build.failed`.
-
-The build pod uses `sleep infinity & wait $!` as its entrypoint so it exits cleanly when deleted, rather than showing as Failed in `kubectl get pods`.
+Listens for `submission.created` events. It deploys a build pod in the `builds` namespace featuring a 3-init-container architecture. The pod downloads the source from SeaweedFS via a pre-signed URL, compiles the code using a language-specific compiler image, uploads the resulting binary back to SeaweedFS via another pre-signed URL, and then signals completion. Finally, the service publishes `build.complete` or `build.failed`.
 
 ### sandbox-orchestrator
 

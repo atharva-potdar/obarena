@@ -83,6 +83,7 @@ Serves HTTP health check status on port `8080`.
 |---------|---------|-------------|
 | `REDPANDA_BROKERS` | `redpanda.platform.svc.cluster.local:9092` | Comma-separated broker list |
 | `TIMESCALEDB_DSN` | *(required, no default)* | PostgreSQL connection string |
+| `KAFKA_TOPIC` | `bot.metrics` | Redpanda topic name |
 | `REDIS_ADDR` | `redis.platform.svc.cluster.local:6379` | Redis address |
 | `REDIS_PASSWORD` | *(empty)* | Redis password |
 | `MAX_LATENCY_US` | `50000.0` | Latency ceiling for scoring (microseconds) |

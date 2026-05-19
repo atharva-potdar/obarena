@@ -1,6 +1,14 @@
 #!/bin/bash
 set -euo pipefail
 
+# smoke-test.sh validates the readiness of platform namespaces, network policies,
+# RBAC service accounts, and core system pods in the k0s cluster.
+
+# Enforce the KUBECONFIG and k0s kubectl pattern for cluster interactions.
+kubectl() {
+  KUBECONFIG=~/.kube/config k0s kubectl "$@"
+}
+
 PASS=0
 FAIL=0
 

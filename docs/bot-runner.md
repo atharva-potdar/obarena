@@ -10,7 +10,7 @@ Runs as a K8s Job in `bots` namespace. Connects to sandbox pod in `sandboxes` na
 
 ## Event Contract
 
-**Writes to:** `bot.metrics` (topic, async produce)
+**Writes to:** `bot.metrics` (topic, sync produce)
 
 ### Produced: bot.metrics
 

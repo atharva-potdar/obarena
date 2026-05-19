@@ -1,3 +1,5 @@
+// Package main implements a stub matching engine that adheres to the OBARENA
+// contestant API contract, used for end-to-end testing and platform validation.
 package main
 
 import (

@@ -152,10 +152,10 @@ One row per `bot.metrics` event received.
 | Column | Type |
 |--------|------|
 | `time` | timestamptz |
-| `submission_id` | text |
+| `submission_id` | uuid |
 | `bot_id` | text |
 | `event_type` | text |
-| `latency_us` | double precision |
+| `latency_us` | bigint |
 | `order_id` | text |
 
 ### `submission_scores`
@@ -164,14 +164,14 @@ One row per submission. Upserted on each event (ON CONFLICT DO UPDATE — last w
 
 | Column | Type |
 |--------|------|
-| `submission_id` | text (primary key) |
+| `submission_id` | uuid (primary key) |
 | `team_name` | text |
-| `p50_us` | double precision |
-| `p90_us` | double precision |
-| `p99_us` | double precision |
-| `tps` | double precision |
-| `correctness` | double precision |
-| `composite` | double precision |
+| `p50_us` | bigint |
+| `p90_us` | bigint |
+| `p99_us` | bigint |
+| `tps` | numeric |
+| `correctness` | numeric |
+| `composite` | numeric |
 | `scored_at` | timestamptz |
 
 ## TODO

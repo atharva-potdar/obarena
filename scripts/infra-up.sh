@@ -1,6 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 
+# infra-up.sh installs or upgrades KEDA (Kubernetes Event-driven Autoscaling)
+# and deploys the core OBARENA platform Helm chart with dev configurations.
+
 echo "==> Ensuring KEDA is installed"
 if ! helm get metadata keda -n keda &>/dev/null 2>&1; then
   helm install keda kedacore/keda -n keda --create-namespace --wait --timeout 120s
