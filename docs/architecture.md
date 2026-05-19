@@ -14,27 +14,27 @@ telemetry-ingester → Redis ZADD → leaderboard-ws → frontend (WebSocket)
 
 ```mermaid
 flowchart LR
-    A[Contestant] -->|1. POST /submissions (init)| B[submission-api]
-    B -->|2. presigned_url| A
-    A -->|3. S3 PUT source| M[(SeaweedFS\nsubmissions bucket)]
-    A -->|4. POST /submissions/:id/confirm| B
-    B -->|5. submission.created| C[(Redpanda\nsubmission.lifecycle)]
+    A[Contestant] -->|"1. POST /submissions (init)"| B[submission-api]
+    B -->|"2. presigned_url"| A
+    A -->|"3. S3 PUT source"| M[("SeaweedFS<br/>submissions bucket")]
+    A -->|"4. POST /submissions/:id/confirm"| B
+    B -->|"5. submission.created"| C[("Redpanda<br/>submission.lifecycle")]
     C -->|consume| D[build-service]
     D -->|build.complete| C
     C -->|consume| E[sandbox-orchestrator]
     E -->|sandbox.ready| C
     C -->|consume| F[bot-orchestrator]
-    F -->|creates| G[K8s Job: bot-runner]
-    G -->|bot.metrics| H[(Redpanda\nbot.metrics)]
+    F -->|creates| G["K8s Job: bot-runner"]
+    G -->|bot.metrics| H[("Redpanda<br/>bot.metrics")]
     H -->|consume| I[telemetry-ingester]
-    I -->|ZADD + PUBLISH| J[(Redis)]
-    J -->|read + subscribe| K[leaderboard-ws]
+    I -->|"ZADD + PUBLISH"| J[(Redis)]
+    J -->|"read + subscribe"| K[leaderboard-ws]
     K -->|WebSocket| L[Browser Frontend]
 
-    D -->|S3 GET| M
-    D -->|S3 PUT| M
-    E -->|S3 GET| M
-    I -->|batch insert| O[(TimescaleDB)]
+    D -->|"S3 GET"| M
+    D -->|"S3 PUT"| M
+    E -->|"S3 GET"| M
+    I -->|"batch insert"| O[(TimescaleDB)]
 ```
 
 ## Services
