@@ -15,6 +15,11 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	lifecyclev1 "iicpc-sh26/gen/proto/obarena/v1"
+	"iicpc-sh26/pkg/schema"
+
+	"github.com/twmb/franz-go/pkg/sr"
 )
 
 func envStr(key, def string) string {
@@ -131,6 +136,7 @@ func run() error {
 		}
 	}
 	topic := envStr("KAFKA_TOPIC", "submission.lifecycle")
+	schemaRegistryURL := envStr("SCHEMA_REGISTRY_URL", "http://redpanda.platform.svc.cluster.local:8081")
 	numBots := envInt("NUM_BOTS", 50)
 	durationSec := envInt("DURATION_SECONDS", 60)
 	jobTimeoutSec := envInt("JOB_TIMEOUT_SECONDS", 120)
@@ -138,20 +144,39 @@ func run() error {
 	sandboxNamespace := envStr("SANDBOX_NAMESPACE", "sandboxes")
 	botRunnerImage := envStr("BOT_RUNNER_IMAGE", "bot-runner:dev")
 
-	publisher, err := NewPublisher(brokers, topic)
+	reg, err := schema.NewRegistry(schemaRegistryURL)
+	if err != nil {
+		return fmt.Errorf("schema registry: %w", err)
+	}
+
+	registered, err := reg.Register(context.Background(), schema.SubjectConfig{
+		Subject:       topic + "-value",
+		ProtoSchema:   schema.LifecycleProto,
+		Compatibility: sr.CompatBackward,
+	})
+	if err != nil {
+		return fmt.Errorf("register schema: %w", err)
+	}
+
+	serde := schema.NewSerde([]schema.Binding{
+		{ID: registered.ID, Type: &lifecyclev1.LifecycleEvent{}, Index: []int{0}},
+	})
+
+	publisher, err := NewPublisher(brokers, topic, serde)
 	if err != nil {
 		return fmt.Errorf("init publisher: %w", err)
 	}
 	defer publisher.Close()
 
 	cfg := Config{
-		NumBots:          numBots,
-		DurationSeconds:  durationSec,
-		JobTimeoutSec:    jobTimeoutSec,
-		WarmupSeconds:    warmupSec,
-		RedpandaBrokers:  strings.Join(brokers, ","),
-		BotRunnerImage:   botRunnerImage,
-		SandboxNamespace: sandboxNamespace,
+		NumBots:           numBots,
+		DurationSeconds:   durationSec,
+		JobTimeoutSec:     jobTimeoutSec,
+		WarmupSeconds:     warmupSec,
+		RedpandaBrokers:   strings.Join(brokers, ","),
+		SchemaRegistryURL: schemaRegistryURL,
+		BotRunnerImage:    botRunnerImage,
+		SandboxNamespace:  sandboxNamespace,
 	}
 
 	orchestrator, err := NewOrchestrator(publisher, cfg)
@@ -159,7 +184,7 @@ func run() error {
 		return fmt.Errorf("init orchestrator: %w", err)
 	}
 
-	consumer, err := NewConsumer(brokers, topic)
+	consumer, err := NewConsumer(brokers, topic, serde)
 	if err != nil {
 		return fmt.Errorf("init consumer: %w", err)
 	}

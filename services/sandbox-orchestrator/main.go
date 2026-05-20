@@ -12,6 +12,11 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	lifecyclev1 "iicpc-sh26/gen/proto/obarena/v1"
+	"iicpc-sh26/pkg/schema"
+
+	"github.com/twmb/franz-go/pkg/sr"
 )
 
 func envStr(key, def string) string {
@@ -48,6 +53,7 @@ func run() error {
 		}
 	}
 	topic := envStr("KAFKA_TOPIC", "submission.lifecycle")
+	schemaRegistryURL := envStr("SCHEMA_REGISTRY_URL", "http://redpanda.platform.svc.cluster.local:8081")
 
 	cfg := SandboxConfig{
 		Timeout:        time.Duration(envInt("SANDBOX_TIMEOUT_SECONDS", 60)) * time.Second,
@@ -64,7 +70,25 @@ func run() error {
 		TolerationV:    envStrSet("SANDBOX_TOLERATION_VALUE", "sandbox"),
 	}
 
-	publisher, err := NewPublisher(redpandaBrokers, topic)
+	reg, err := schema.NewRegistry(schemaRegistryURL)
+	if err != nil {
+		return fmt.Errorf("schema registry: %w", err)
+	}
+
+	registered, err := reg.Register(context.Background(), schema.SubjectConfig{
+		Subject:       topic + "-value",
+		ProtoSchema:   schema.LifecycleProto,
+		Compatibility: sr.CompatBackward,
+	})
+	if err != nil {
+		return fmt.Errorf("register schema: %w", err)
+	}
+
+	serde := schema.NewSerde([]schema.Binding{
+		{ID: registered.ID, Type: &lifecyclev1.LifecycleEvent{}, Index: []int{0}},
+	})
+
+	publisher, err := NewPublisher(redpandaBrokers, topic, serde)
 	if err != nil {
 		return fmt.Errorf("init publisher: %w", err)
 	}
@@ -76,7 +100,7 @@ func run() error {
 	}
 	defer orchestrator.Close()
 
-	consumer, err := NewConsumer(redpandaBrokers, topic, orchestrator, publisher)
+	consumer, err := NewConsumer(redpandaBrokers, topic, orchestrator, publisher, serde)
 	if err != nil {
 		return fmt.Errorf("init consumer: %w", err)
 	}

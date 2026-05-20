@@ -9,6 +9,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	lifecyclev1 "iicpc-sh26/gen/proto/obarena/v1"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
@@ -118,7 +120,7 @@ func NewBuilder(seaweedfsEndpoint string, maxLogBytes int) (*Builder, error) {
 //  4. Watch the pod until completion (Success/Failure)
 //  5. Read logs from the failed container on failure
 //  6. Cleanup the pod
-func (b *Builder) Build(ctx context.Context, event SubmissionCreatedEvent) (*BuildResult, error) {
+func (b *Builder) Build(ctx context.Context, event *lifecyclev1.SubmissionCreated) (*BuildResult, error) {
 	image, ok := buildImages[event.Language]
 	if !ok {
 		return nil, fmt.Errorf("unsupported language: %s", event.Language)
@@ -137,7 +139,7 @@ func (b *Builder) Build(ctx context.Context, event SubmissionCreatedEvent) (*Bui
 	}
 
 	// 2. Generate pre-signed PUT URL for binary
-	binaryPath := fmt.Sprintf("builds/%s/binary", event.SubmissionID)
+	binaryPath := fmt.Sprintf("builds/%s/binary", event.SubmissionId)
 	binaryUploadURL, err := b.GeneratePresignedPutURL(presignCtx, binaryPath, 15*time.Minute)
 	if err != nil {
 		return nil, fmt.Errorf("generate presigned binary upload URL: %w", err)
@@ -146,7 +148,7 @@ func (b *Builder) Build(ctx context.Context, event SubmissionCreatedEvent) (*Bui
 	// 3. Create build pod
 	podCtx, podCancel := context.WithTimeout(ctx, 150*time.Second)
 	defer podCancel()
-	podName := fmt.Sprintf("build-%s", event.SubmissionID)
+	podName := fmt.Sprintf("build-%s", event.SubmissionId)
 	pod, err := b.createBuildPod(podCtx, podName, image, buildCmd, sourceURL, binaryUploadURL)
 	if err != nil {
 		return nil, fmt.Errorf("create pod: %w", err)

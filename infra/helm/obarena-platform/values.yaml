@@ -26,6 +26,8 @@ s3:
 redpanda:
   devMode: true
 
+schemaRegistryUrl: "http://redpanda.platform.svc.cluster.local:8081"
+
 nodeSelector:
   platform: { workload: platform }
   sandbox:  { workload: sandbox }

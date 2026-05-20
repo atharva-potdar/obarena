@@ -25,6 +25,8 @@ spec:
           env:
             - name: REDPANDA_BROKERS
               value: "redpanda.platform.svc.cluster.local:9092"
+            - name: SCHEMA_REGISTRY_URL
+              value: {{ .Values.schemaRegistryUrl | default "http://redpanda.platform.svc.cluster.local:8081" | quote }}
             - name: BOT_RUNNER_IMAGE
               value: {{ include "obarena.image" (list . "bot-runner") | quote }}
             - name: NUM_BOTS

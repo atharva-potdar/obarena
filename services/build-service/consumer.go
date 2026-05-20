@@ -2,32 +2,25 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"time"
 
-	"github.com/twmb/franz-go/pkg/kgo"
-)
+	lifecyclev1 "iicpc-sh26/gen/proto/obarena/v1"
 
-// SubmissionCreatedEvent mirrors the event published by the submission API.
-type SubmissionCreatedEvent struct {
-	Event        string `json:"event"`
-	SubmissionID string `json:"submission_id"`
-	Language     string `json:"language"`
-	TeamName     string `json:"team_name"`
-	ArtifactPath string `json:"artifact_path"`
-	CreatedAt    int64  `json:"created_at"`
-}
+	"github.com/twmb/franz-go/pkg/kgo"
+	"github.com/twmb/franz-go/pkg/sr"
+)
 
 type Consumer struct {
 	client    *kgo.Client
 	builder   *Builder
 	publisher *Publisher
+	serde     *sr.Serde
 	topic     string
 }
 
-func NewConsumer(brokers []string, topic string, builder *Builder, publisher *Publisher) (*Consumer, error) {
+func NewConsumer(brokers []string, topic string, builder *Builder, publisher *Publisher, serde *sr.Serde) (*Consumer, error) {
 	client, err := kgo.NewClient(
 		kgo.SeedBrokers(brokers...),
 		kgo.ConsumerGroup("build-service"),
@@ -37,7 +30,7 @@ func NewConsumer(brokers []string, topic string, builder *Builder, publisher *Pu
 	if err != nil {
 		return nil, fmt.Errorf("new kafka client: %w", err)
 	}
-	return &Consumer{client: client, builder: builder, publisher: publisher, topic: topic}, nil
+	return &Consumer{client: client, builder: builder, publisher: publisher, serde: serde, topic: topic}, nil
 }
 
 // Run consumes events until the context is cancelled.
@@ -71,34 +64,41 @@ func (c *Consumer) Run(ctx context.Context) error {
 }
 
 func (c *Consumer) handleRecord(ctx context.Context, record *kgo.Record) error {
-	var event SubmissionCreatedEvent
-	if err := json.Unmarshal(record.Value, &event); err != nil {
-		slog.Error("unmarshal event", "error", err)
+	decoded, err := c.serde.DecodeNew(record.Value)
+	if err != nil {
+		slog.Error("decode event", "error", err, "offset", record.Offset)
 		return nil // skip malformed events
 	}
 
-	if event.Event != "submission.created" {
+	envelope, ok := decoded.(*lifecyclev1.LifecycleEvent)
+	if !ok {
+		slog.Error("unexpected type from decode", "type", fmt.Sprintf("%T", decoded))
 		return nil
 	}
 
+	sc := envelope.GetSubmissionCreated()
+	if sc == nil {
+		return nil // not a submission.created event
+	}
+
 	slog.Info("processing build",
-		"submission", event.SubmissionID,
-		"lang", event.Language,
-		"team", event.TeamName,
+		"submission", sc.SubmissionId,
+		"lang", sc.Language,
+		"team", sc.TeamName,
 	)
 
-	result, err := c.builder.Build(ctx, event)
+	result, err := c.builder.Build(ctx, sc)
 	if err != nil {
-		slog.Error("build failed", "submission", event.SubmissionID, "error", err)
-		if pubErr := c.publisher.PublishBuildFailed(ctx, event.SubmissionID, err.Error()); pubErr != nil {
+		slog.Error("build failed", "submission", sc.SubmissionId, "error", err)
+		if pubErr := c.publisher.PublishBuildFailed(ctx, sc.SubmissionId, err.Error()); pubErr != nil {
 			slog.Error("publish build.failed", "error", pubErr)
 		}
 		return nil // we published a failure, so this record is "handled"
 	}
 
-	slog.Info("build complete", "submission", event.SubmissionID, "binary", result.BinaryPath)
+	slog.Info("build complete", "submission", sc.SubmissionId, "binary", result.BinaryPath)
 	if pubErr := c.publisher.PublishBuildComplete(
-		ctx, event.SubmissionID, result.BinaryPath, event.Language, event.TeamName,
+		ctx, sc.SubmissionId, result.BinaryPath, sc.Language, sc.TeamName,
 	); pubErr != nil {
 		return fmt.Errorf("publish build.complete: %w", pubErr)
 	}

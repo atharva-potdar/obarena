@@ -1,0 +1,69 @@
+syntax = "proto3";
+
+package obarena.v1;
+
+// LifecycleEvent wraps all event types published on the submission.lifecycle
+// topic. A single oneof ensures one schema subject governs the entire topic,
+// preserving strict Kafka partition ordering across the state machine.
+message LifecycleEvent {
+  oneof event {
+    SubmissionCreated submission_created = 1;
+    BuildComplete build_complete = 2;
+    BuildFailed build_failed = 3;
+    SandboxReady sandbox_ready = 4;
+    SandboxFailed sandbox_failed = 5;
+    TestComplete test_complete = 6;
+  }
+}
+
+// SubmissionCreated triggers a build when a contestant confirms their upload.
+message SubmissionCreated {
+  string submission_id = 1;
+  string language = 2;
+  string team_name = 3;
+  string artifact_path = 4;
+  int64 created_at = 5;
+}
+
+// BuildComplete triggers sandbox deployment after successful compilation.
+message BuildComplete {
+  string submission_id = 1;
+  string binary_path = 2;
+  string language = 3;
+  string team_name = 4;
+  int64 built_at = 5;
+}
+
+// BuildFailed records a terminal compilation failure.
+message BuildFailed {
+  string submission_id = 1;
+  string reason = 2;
+  int64 failed_at = 3;
+}
+
+// SandboxReady triggers bot orchestration after the sandbox pod becomes healthy.
+message SandboxReady {
+  string submission_id = 1;
+  string pod_name = 2;
+  string pod_ip = 3;
+  int32 http_port = 4;
+  int32 ws_port = 5;
+  string team_name = 6;
+  int64 ready_at = 7;
+}
+
+// SandboxFailed records a terminal sandbox deployment failure.
+message SandboxFailed {
+  string submission_id = 1;
+  string reason = 2;
+  int64 failed_at = 3;
+}
+
+// TestComplete triggers sandbox teardown after bot runner finishes.
+message TestComplete {
+  string submission_id = 1;
+  string team_name = 2;
+  bool success = 3;
+  string reason = 4;
+  int64 completed_at = 5;
+}

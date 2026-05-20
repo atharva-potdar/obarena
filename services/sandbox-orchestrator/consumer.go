@@ -2,33 +2,26 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"time"
 
+	lifecyclev1 "iicpc-sh26/gen/proto/obarena/v1"
+
 	"github.com/twmb/franz-go/pkg/kgo"
+	"github.com/twmb/franz-go/pkg/sr"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 )
 
-// BuildCompleteEvent mirrors the event published by the build service.
-type BuildCompleteEvent struct {
-	Event        string `json:"event"`
-	SubmissionID string `json:"submission_id"`
-	BinaryPath   string `json:"binary_path"`
-	Language     string `json:"language"`
-	TeamName     string `json:"team_name"`
-	BuiltAt      int64  `json:"built_at"`
-}
-
 type Consumer struct {
 	client       *kgo.Client
+	serde        *sr.Serde
 	orchestrator *Orchestrator
 	publisher    *Publisher
 	topic        string
 }
 
-func NewConsumer(brokers []string, topic string, orchestrator *Orchestrator, publisher *Publisher) (*Consumer, error) {
+func NewConsumer(brokers []string, topic string, orchestrator *Orchestrator, publisher *Publisher, serde *sr.Serde) (*Consumer, error) {
 	client, err := kgo.NewClient(
 		kgo.SeedBrokers(brokers...),
 		kgo.ConsumerGroup("sandbox-orchestrator"),
@@ -38,7 +31,7 @@ func NewConsumer(brokers []string, topic string, orchestrator *Orchestrator, pub
 	if err != nil {
 		return nil, fmt.Errorf("new kafka client: %w", err)
 	}
-	return &Consumer{client: client, orchestrator: orchestrator, publisher: publisher, topic: topic}, nil
+	return &Consumer{client: client, serde: serde, orchestrator: orchestrator, publisher: publisher, topic: topic}, nil
 }
 
 // Run consumes events until the context is cancelled.
@@ -80,41 +73,48 @@ func (c *Consumer) Run(ctx context.Context) error {
 }
 
 func (c *Consumer) handleRecord(ctx context.Context, record *kgo.Record) error {
-	var event BuildCompleteEvent
-	if err := json.Unmarshal(record.Value, &event); err != nil {
-		slog.Error("unmarshal event", "error", err)
+	decoded, err := c.serde.DecodeNew(record.Value)
+	if err != nil {
+		slog.Error("decode event", "error", err, "offset", record.Offset)
 		return nil // skip malformed events
 	}
 
-	if event.Event != "build.complete" {
+	envelope, ok := decoded.(*lifecyclev1.LifecycleEvent)
+	if !ok {
+		slog.Error("unexpected type from decode", "type", fmt.Sprintf("%T", decoded))
 		return nil
 	}
 
+	bc := envelope.GetBuildComplete()
+	if bc == nil {
+		return nil // not a build.complete event
+	}
+
 	slog.Info("processing sandbox",
-		"submission", event.SubmissionID,
-		"team", event.TeamName,
+		"submission", bc.SubmissionId,
+		"team", bc.TeamName,
 	)
 
-	result, err := c.orchestrator.Deploy(ctx, event)
+	result, err := c.orchestrator.Deploy(ctx, bc)
 	if err != nil {
 		if k8serrors.IsAlreadyExists(err) {
-			slog.Info("sandbox already exists, treating as success", "submission", event.SubmissionID)
+			slog.Info("sandbox already exists, treating as success", "submission", bc.SubmissionId)
 			return nil
 		}
-		slog.Error("sandbox failed", "submission", event.SubmissionID, "error", err)
-		if pubErr := c.publisher.PublishSandboxFailed(ctx, event.SubmissionID, err.Error()); pubErr != nil {
+		slog.Error("sandbox failed", "submission", bc.SubmissionId, "error", err)
+		if pubErr := c.publisher.PublishSandboxFailed(ctx, bc.SubmissionId, err.Error()); pubErr != nil {
 			slog.Error("publish sandbox.failed", "error", pubErr)
 		}
 		return nil // sandbox failure is a business error, not a consumer error
 	}
 
 	slog.Info("sandbox ready",
-		"submission", event.SubmissionID,
+		"submission", bc.SubmissionId,
 		"pod", result.PodName,
 		"ip", result.PodIP,
 	)
 	if pubErr := c.publisher.PublishSandboxReady(
-		ctx, event.SubmissionID, result.PodName, result.PodIP, event.TeamName,
+		ctx, bc.SubmissionId, result.PodName, result.PodIP, bc.TeamName,
 	); pubErr != nil {
 		return fmt.Errorf("publish sandbox.ready: %w", pubErr)
 	}

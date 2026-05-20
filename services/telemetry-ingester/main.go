@@ -13,6 +13,11 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	metricsv1 "iicpc-sh26/gen/proto/obarena/v1"
+	"iicpc-sh26/pkg/schema"
+
+	"github.com/twmb/franz-go/pkg/sr"
 )
 
 func envStr(key, def string) string {
@@ -44,6 +49,7 @@ func run() error {
 		return fmt.Errorf("TIMESCALEDB_DSN must be set")
 	}
 	topic := envStr("KAFKA_TOPIC", "bot.metrics")
+	schemaRegistryURL := envStr("SCHEMA_REGISTRY_URL", "http://redpanda.platform.svc.cluster.local:8081")
 	redisAddr := envStr("REDIS_ADDR", "redis.platform.svc.cluster.local:6379")
 	redisPass := envStr("REDIS_PASSWORD", "")
 
@@ -53,13 +59,31 @@ func run() error {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
+	reg, err := schema.NewRegistry(schemaRegistryURL)
+	if err != nil {
+		return fmt.Errorf("schema registry: %v", err)
+	}
+
+	registered, err := reg.Register(ctx, schema.SubjectConfig{
+		Subject:       topic + "-value",
+		ProtoSchema:   schema.MetricsProto,
+		Compatibility: sr.CompatFullTransitive,
+	})
+	if err != nil {
+		return fmt.Errorf("register schema: %v", err)
+	}
+
+	serde := schema.NewSerde([]schema.Binding{
+		{ID: registered.ID, Type: &metricsv1.BotMetrics{}, Index: []int{0}},
+	})
+
 	ingester, err := NewIngester(ctx, dsn, redisAddr, redisPass, maxLatencyUS, maxTPS)
 	if err != nil {
 		return fmt.Errorf("init ingester: %v", err)
 	}
 	defer ingester.Close()
 
-	consumer, err := NewConsumer(brokers, topic)
+	consumer, err := NewConsumer(brokers, topic, serde)
 	if err != nil {
 		return fmt.Errorf("init consumer: %v", err)
 	}

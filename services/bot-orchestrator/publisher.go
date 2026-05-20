@@ -2,29 +2,23 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"time"
 
-	"github.com/twmb/franz-go/pkg/kgo"
-)
+	lifecyclev1 "iicpc-sh26/gen/proto/obarena/v1"
 
-type TestCompleteEvent struct {
-	Event        string `json:"event"`
-	SubmissionID string `json:"submission_id"`
-	TeamName     string `json:"team_name"`
-	Success      bool   `json:"success"`
-	Reason       string `json:"reason"`
-	CompletedAt  int64  `json:"completed_at"`
-}
+	"github.com/twmb/franz-go/pkg/kgo"
+	"github.com/twmb/franz-go/pkg/sr"
+)
 
 type Publisher struct {
 	client *kgo.Client
+	serde  *sr.Serde
 	topic  string
 }
 
-func NewPublisher(brokers []string, topic string) (*Publisher, error) {
+func NewPublisher(brokers []string, topic string, serde *sr.Serde) (*Publisher, error) {
 	client, err := kgo.NewClient(
 		kgo.SeedBrokers(brokers...),
 		kgo.WithLogger(kgo.BasicLogger(os.Stderr, kgo.LogLevelInfo, nil)),
@@ -32,16 +26,25 @@ func NewPublisher(brokers []string, topic string) (*Publisher, error) {
 	if err != nil {
 		return nil, fmt.Errorf("new kafka client: %w", err)
 	}
-	return &Publisher{client: client, topic: topic}, nil
+	return &Publisher{client: client, serde: serde, topic: topic}, nil
 }
 
 func (p *Publisher) PublishTestComplete(ctx context.Context, e TestCompleteEvent) error {
-	e.Event = "test.complete"
-	e.CompletedAt = time.Now().UnixNano()
+	event := &lifecyclev1.LifecycleEvent{
+		Event: &lifecyclev1.LifecycleEvent_TestComplete{
+			TestComplete: &lifecyclev1.TestComplete{
+				SubmissionId: e.SubmissionID,
+				TeamName:     e.TeamName,
+				Success:      e.Success,
+				Reason:       e.Reason,
+				CompletedAt:  time.Now().UnixNano(),
+			},
+		},
+	}
 
-	payload, err := json.Marshal(e)
+	payload, err := p.serde.Encode(event)
 	if err != nil {
-		return fmt.Errorf("marshal event: %w", err)
+		return fmt.Errorf("encode event: %w", err)
 	}
 
 	record := &kgo.Record{
@@ -60,4 +63,13 @@ func (p *Publisher) PublishTestComplete(ctx context.Context, e TestCompleteEvent
 
 func (p *Publisher) Close() {
 	p.client.Close()
+}
+
+// TestCompleteEvent is the local struct used by the orchestrator to pass data
+// to the publisher. It mirrors the protobuf TestComplete message fields.
+type TestCompleteEvent struct {
+	SubmissionID string
+	TeamName     string
+	Success      bool
+	Reason       string
 }

@@ -1,0 +1,12 @@
+version: v2
+managed:
+  enabled: true
+  override:
+    - file_option: go_package_prefix
+      value: iicpc-sh26/gen/proto
+plugins:
+  - remote: buf.build/protocolbuffers/go
+    out: gen/proto
+    opt: paths=source_relative
+inputs:
+  - directory: proto

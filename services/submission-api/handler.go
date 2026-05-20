@@ -122,13 +122,7 @@ func (h *Handler) handleConfirm(w http.ResponseWriter, r *http.Request) {
 	}
 	pending := v.(pendingSubmit)
 	artifactPath := fmt.Sprintf("submissions/%s.tar.gz", submissionID)
-	event := SubmissionCreatedEvent{
-		SubmissionID: submissionID,
-		Language:     pending.Language,
-		TeamName:     pending.TeamName,
-		ArtifactPath: artifactPath,
-	}
-	if err := h.publisher.PublishSubmissionCreated(r.Context(), event); err != nil {
+	if err := h.publisher.PublishSubmissionCreated(r.Context(), submissionID, pending.Language, pending.TeamName, artifactPath); err != nil {
 		log.Error("publish event", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
 		return

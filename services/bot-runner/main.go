@@ -14,7 +14,11 @@ import (
 	"syscall"
 	"time"
 
+	metricsv1 "iicpc-sh26/gen/proto/obarena/v1"
+	"iicpc-sh26/pkg/schema"
+
 	"github.com/twmb/franz-go/pkg/kgo"
+	"github.com/twmb/franz-go/pkg/sr"
 )
 
 func envInt(key string, def int) int {
@@ -42,6 +46,7 @@ func run() error {
 	testRunID := submissionID
 	rawBrokers := envStr("REDPANDA_BROKERS", "")
 	topic := envStr("KAFKA_TOPIC", "bot.metrics")
+	schemaRegistryURL := envStr("SCHEMA_REGISTRY_URL", "http://redpanda.platform.svc.cluster.local:8081")
 	var brokers []string
 	for _, b := range strings.Split(rawBrokers, ",") {
 		if trimmed := strings.TrimSpace(b); trimmed != "" {
@@ -52,6 +57,7 @@ func run() error {
 	duration := time.Duration(durationSec) * time.Second
 
 	var client *kgo.Client
+	var serde *sr.Serde
 	if len(brokers) > 0 && brokers[0] != "" {
 		var err error
 		client, err = kgo.NewClient(kgo.SeedBrokers(brokers...))
@@ -59,6 +65,24 @@ func run() error {
 			return fmt.Errorf("failed to create kafka client: %w", err)
 		}
 		defer client.Close()
+
+		reg, err := schema.NewRegistry(schemaRegistryURL)
+		if err != nil {
+			return fmt.Errorf("schema registry: %w", err)
+		}
+
+		registered, err := reg.Register(context.Background(), schema.SubjectConfig{
+			Subject:       topic + "-value",
+			ProtoSchema:   schema.MetricsProto,
+			Compatibility: sr.CompatFullTransitive,
+		})
+		if err != nil {
+			return fmt.Errorf("register schema: %w", err)
+		}
+
+		serde = schema.NewSerde([]schema.Binding{
+			{ID: registered.ID, Type: &metricsv1.BotMetrics{}, Index: []int{0}},
+		})
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -143,7 +167,7 @@ warmupLoop:
 
 	slog.Info("attempting to publish metrics", "submission", submissionID)
 	if submissionID != "" {
-		if err := publishMetrics(client, topic, agg, elapsed, teamName, submissionID, testRunID, correctnessResult.Score); err != nil {
+		if err := publishMetrics(client, serde, topic, agg, elapsed, teamName, submissionID, testRunID, correctnessResult.Score); err != nil {
 			slog.Error("failed to publish metrics", "err", err)
 		} else {
 			slog.Info("metrics published to Redpanda")

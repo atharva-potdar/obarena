@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"time"
 
+	lifecyclev1 "iicpc-sh26/gen/proto/obarena/v1"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
@@ -101,12 +103,12 @@ func NewOrchestrator(seaweedfsEndpoint string, cfg SandboxConfig) (*Orchestrator
 //  3. Main container executes the binary directly
 //  4. Wait for pod to become Running and Ready
 //  5. Return pod info on success, cleanup on failure
-func (o *Orchestrator) Deploy(ctx context.Context, event BuildCompleteEvent) (*DeployResult, error) {
+func (o *Orchestrator) Deploy(ctx context.Context, event *lifecyclev1.BuildComplete) (*DeployResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, o.cfg.Timeout)
 	defer cancel()
 
 	// 1. Create sandbox pod
-	podName := fmt.Sprintf("sandbox-%s", event.SubmissionID)
+	podName := fmt.Sprintf("sandbox-%s", event.SubmissionId)
 	pod, err := o.createSandboxPod(ctx, podName, event.BinaryPath)
 	if err != nil {
 		return nil, fmt.Errorf("create pod: %w", err)

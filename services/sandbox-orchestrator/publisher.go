@@ -2,40 +2,24 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"time"
+	"unicode/utf8"
+
+	lifecyclev1 "iicpc-sh26/gen/proto/obarena/v1"
 
 	"github.com/twmb/franz-go/pkg/kgo"
+	"github.com/twmb/franz-go/pkg/sr"
 )
-
-// SandboxReadyEvent is published when a sandbox pod becomes healthy.
-type SandboxReadyEvent struct {
-	Event        string `json:"event"`
-	SubmissionID string `json:"submission_id"`
-	PodName      string `json:"pod_name"`
-	PodIP        string `json:"pod_ip"`
-	HTTPPort     int    `json:"http_port"`
-	WSPort       int    `json:"ws_port"`
-	TeamName     string `json:"team_name"`
-	ReadyAt      int64  `json:"ready_at"`
-}
-
-// SandboxFailedEvent is published when sandbox deployment fails.
-type SandboxFailedEvent struct {
-	Event        string `json:"event"`
-	SubmissionID string `json:"submission_id"`
-	Reason       string `json:"reason"`
-	FailedAt     int64  `json:"failed_at"`
-}
 
 type Publisher struct {
 	client *kgo.Client
+	serde  *sr.Serde
 	topic  string
 }
 
-func NewPublisher(brokers []string, topic string) (*Publisher, error) {
+func NewPublisher(brokers []string, topic string, serde *sr.Serde) (*Publisher, error) {
 	client, err := kgo.NewClient(
 		kgo.SeedBrokers(brokers...),
 		kgo.WithLogger(kgo.BasicLogger(os.Stderr, kgo.LogLevelInfo, nil)),
@@ -43,22 +27,25 @@ func NewPublisher(brokers []string, topic string) (*Publisher, error) {
 	if err != nil {
 		return nil, fmt.Errorf("new kafka client: %w", err)
 	}
-	return &Publisher{client: client, topic: topic}, nil
+	return &Publisher{client: client, serde: serde, topic: topic}, nil
 }
 
 func (p *Publisher) PublishSandboxReady(
 	ctx context.Context,
 	submissionID, podName, podIP, teamName string,
 ) error {
-	event := SandboxReadyEvent{
-		Event:        "sandbox.ready",
-		SubmissionID: submissionID,
-		PodName:      podName,
-		PodIP:        podIP,
-		HTTPPort:     httpPort,
-		WSPort:       httpPort,
-		TeamName:     teamName,
-		ReadyAt:      time.Now().UnixNano(),
+	event := &lifecyclev1.LifecycleEvent{
+		Event: &lifecyclev1.LifecycleEvent_SandboxReady{
+			SandboxReady: &lifecyclev1.SandboxReady{
+				SubmissionId: submissionID,
+				PodName:      podName,
+				PodIp:        podIP,
+				HttpPort:     httpPort,
+				WsPort:       httpPort,
+				TeamName:     teamName,
+				ReadyAt:      time.Now().UnixNano(),
+			},
+		},
 	}
 	return p.publish(ctx, submissionID, event)
 }
@@ -67,19 +54,22 @@ func (p *Publisher) PublishSandboxFailed(
 	ctx context.Context,
 	submissionID, reason string,
 ) error {
-	event := SandboxFailedEvent{
-		Event:        "sandbox.failed",
-		SubmissionID: submissionID,
-		Reason:       truncate(reason, 4096),
-		FailedAt:     time.Now().UnixNano(),
+	event := &lifecyclev1.LifecycleEvent{
+		Event: &lifecyclev1.LifecycleEvent_SandboxFailed{
+			SandboxFailed: &lifecyclev1.SandboxFailed{
+				SubmissionId: submissionID,
+				Reason:       truncate(reason, 4096),
+				FailedAt:     time.Now().UnixNano(),
+			},
+		},
 	}
 	return p.publish(ctx, submissionID, event)
 }
 
-func (p *Publisher) publish(ctx context.Context, key string, event any) error {
-	payload, err := json.Marshal(event)
+func (p *Publisher) publish(ctx context.Context, key string, event *lifecyclev1.LifecycleEvent) error {
+	payload, err := p.serde.Encode(event)
 	if err != nil {
-		return fmt.Errorf("marshal event: %w", err)
+		return fmt.Errorf("encode event: %w", err)
 	}
 	record := &kgo.Record{
 		Topic: p.topic,
@@ -103,5 +93,9 @@ func truncate(s string, max int) string {
 	if len(s) <= max {
 		return s
 	}
-	return s[:max]
+	s = s[:max]
+	for len(s) > 0 && !utf8.ValidString(s) {
+		s = s[:len(s)-1]
+	}
+	return s
 }

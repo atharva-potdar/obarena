@@ -1,0 +1,43 @@
+syntax = "proto3";
+
+package obarena.v1;
+
+// BotMetrics is the hot-path message published to the bot.metrics topic.
+// All fields are flat primitives for maximum marshal speed — no nested
+// messages or repeated fields to avoid allocations on the critical path.
+message BotMetrics {
+  string team_name = 1;
+  string submission_id = 2;
+  string test_run_id = 3;
+
+  // Test duration and throughput.
+  int64 duration_ms = 4;
+  int64 orders_sent = 5;
+  int64 acks_recv = 6;
+  int64 fills_recv = 7;
+  int64 rejects_recv = 8;
+  int64 stale_orders = 9;
+
+  // Acknowledgment latency percentiles in microseconds.
+  int64 ack_p50_us = 10;
+  int64 ack_p90_us = 11;
+  int64 ack_p99_us = 12;
+  int64 ack_p999_us = 13;
+  int64 ack_max_us = 14;
+
+  // Fill latency percentiles in microseconds.
+  int64 fill_p50_us = 15;
+  int64 fill_p90_us = 16;
+  int64 fill_p99_us = 17;
+  int64 fill_p999_us = 18;
+  int64 fill_max_us = 19;
+
+  // Transactions per second (computed by bot-runner).
+  double tps = 20;
+
+  // Correctness score from orderbook snapshot validation (0.0–1.0).
+  double correctness_score = 21;
+
+  // Nanosecond Unix timestamp when the bot-runner emitted this event.
+  int64 emitted_at = 22;
+}

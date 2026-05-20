@@ -28,6 +28,7 @@ type Config struct {
 	JobTimeoutSec    int
 	WarmupSeconds    int
 	RedpandaBrokers  string
+	SchemaRegistryURL string
 	BotRunnerImage   string
 	SandboxNamespace string
 }
@@ -113,6 +114,7 @@ func (o *Orchestrator) runTest(ctx context.Context, event SandboxReadyEvent) err
 								{Name: "TEAM_NAME", Value: event.TeamName},
 								{Name: "TEST_RUN_ID", Value: event.SubmissionID},
 								{Name: "REDPANDA_BROKERS", Value: o.cfg.RedpandaBrokers},
+								{Name: "SCHEMA_REGISTRY_URL", Value: o.cfg.SchemaRegistryURL},
 							},
 							Resources: corev1.ResourceRequirements{
 								Requests: corev1.ResourceList{

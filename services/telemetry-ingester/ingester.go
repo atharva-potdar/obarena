@@ -9,13 +9,15 @@ import (
 	"sync"
 	"time"
 
+	metricsv1 "iicpc-sh26/gen/proto/obarena/v1"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
 
 type EventScorePair struct {
-	Event BotMetricsEvent
+	Event *metricsv1.BotMetrics
 	Score float64
 }
 
@@ -190,7 +192,7 @@ func (i *Ingester) writeBatch(ctx context.Context, pairs []EventScorePair) error
 				(time, submission_id, bot_id, event_type, latency_us, order_id)
 			VALUES
 				($1, $2, $3, $4, $5, NULL)
-		`, time.Unix(0, p.Event.EmittedAt), p.Event.SubmissionID, p.Event.TestRunID, "bot.metrics", p.Event.AckP90US)
+		`, time.Unix(0, p.Event.EmittedAt), p.Event.SubmissionId, p.Event.TestRunId, "bot.metrics", p.Event.AckP90Us)
 
 		batch.Queue(`
 			INSERT INTO submission_scores
@@ -205,7 +207,7 @@ func (i *Ingester) writeBatch(ctx context.Context, pairs []EventScorePair) error
 				correctness = EXCLUDED.correctness,
 				composite   = EXCLUDED.composite,
 				scored_at   = EXCLUDED.scored_at
-		`, p.Event.SubmissionID, p.Event.TeamName, p.Event.AckP50US, p.Event.AckP90US, p.Event.AckP99US, p.Event.TPS,
+		`, p.Event.SubmissionId, p.Event.TeamName, p.Event.AckP50Us, p.Event.AckP90Us, p.Event.AckP99Us, p.Event.Tps,
 			p.Event.CorrectnessScore, p.Score, time.Now())
 	}
 
@@ -230,7 +232,7 @@ func (i *Ingester) writeBatch(ctx context.Context, pairs []EventScorePair) error
 	return nil
 }
 
-func (i *Ingester) Handle(ctx context.Context, event BotMetricsEvent) {
+func (i *Ingester) Handle(ctx context.Context, event *metricsv1.BotMetrics) {
 	score := i.computeScore(event)
 
 	i.mu.Lock()
@@ -242,25 +244,25 @@ func (i *Ingester) Handle(ctx context.Context, event BotMetricsEvent) {
 	}
 
 	slog.Info("ingested",
-		"submission", event.SubmissionID,
+		"submission", event.SubmissionId,
 		"score", score,
-		"tps", event.TPS,
-		"ack_p90", event.AckP90US,
+		"tps", event.Tps,
+		"ack_p90", event.AckP90Us,
 	)
 }
 
-func (i *Ingester) computeScore(event BotMetricsEvent) float64 {
+func (i *Ingester) computeScore(event *metricsv1.BotMetrics) float64 {
 	// Latency score: weighted combination of p50/p90/p99 acknowledgment latencies.
 	// p99 carries the most weight (0.5) because tail latency is the primary
 	// discriminator between submissions under load.
-	weightedLatencyUS := float64(event.AckP50US)*0.2 +
-		float64(event.AckP90US)*0.3 +
-		float64(event.AckP99US)*0.5
+	weightedLatencyUS := float64(event.AckP50Us)*0.2 +
+		float64(event.AckP90Us)*0.3 +
+		float64(event.AckP99Us)*0.5
 	latencyScore := 1.0 - (weightedLatencyUS / i.maxAcceptableLatencyUS)
 	latencyScore = math.Max(0, math.Min(1, latencyScore))
 
 	// Throughput score: sustained TPS relative to the platform ceiling.
-	throughputScore := event.TPS / i.maxAcceptableTPS
+	throughputScore := event.Tps / i.maxAcceptableTPS
 	throughputScore = math.Max(0, math.Min(1, throughputScore))
 
 	// Correctness score: validated orderbook integrity from GET /orderbook.
@@ -296,21 +298,21 @@ var updateLeaderboardScript = redis.NewScript(`
 	return redis.call('PUBLISH', KEYS[3], ARGV[3])
 `)
 
-func (i *Ingester) updateLeaderboard(ctx context.Context, event BotMetricsEvent, score float64) error {
+func (i *Ingester) updateLeaderboard(ctx context.Context, event *metricsv1.BotMetrics, score float64) error {
 	correctness := math.Max(0, math.Min(1, event.CorrectnessScore))
 
 	entry := leaderboardEntry{
-		SubmissionID: event.SubmissionID,
+		SubmissionID: event.SubmissionId,
 		TeamName:     event.TeamName,
 		Score:        score,
-		TPS:          event.TPS,
-		AckP50US:     event.AckP50US,
-		AckP90US:     event.AckP90US,
-		AckP99US:     event.AckP99US,
+		TPS:          event.Tps,
+		AckP50US:     event.AckP50Us,
+		AckP90US:     event.AckP90Us,
+		AckP99US:     event.AckP99Us,
 		OrdersSent:   event.OrdersSent,
 		RejectsRecv:  event.RejectsRecv,
 		Correctness:  correctness,
-		DurationMS:   event.DurationMS,
+		DurationMS:   event.DurationMs,
 		Timestamp:    time.Now().UTC().Format(time.RFC3339),
 	}
 
@@ -322,7 +324,7 @@ func (i *Ingester) updateLeaderboard(ctx context.Context, event BotMetricsEvent,
 	// score*1000 avoids Redis float collation issues in sorted sets
 	return updateLeaderboardScript.Run(ctx, i.redis,
 		[]string{"leaderboard", "leaderboard_details", "leaderboard_updates"},
-		score*1000, event.SubmissionID, payload,
+		score*1000, event.SubmissionId, payload,
 	).Err()
 }
 

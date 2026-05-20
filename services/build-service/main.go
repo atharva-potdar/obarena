@@ -11,6 +11,11 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+
+	lifecyclev1 "iicpc-sh26/gen/proto/obarena/v1"
+	"iicpc-sh26/pkg/schema"
+
+	"github.com/twmb/franz-go/pkg/sr"
 )
 
 func envStr(key, def string) string {
@@ -39,9 +44,28 @@ func run() error {
 		}
 	}
 	topic := envStr("KAFKA_TOPIC", "submission.lifecycle")
+	schemaRegistryURL := envStr("SCHEMA_REGISTRY_URL", "http://redpanda.platform.svc.cluster.local:8081")
 	maxLogBytes := envInt("MAX_LOG_BYTES", 4096)
 
-	publisher, err := NewPublisher(redpandaBrokers, topic)
+	reg, err := schema.NewRegistry(schemaRegistryURL)
+	if err != nil {
+		return fmt.Errorf("schema registry: %v", err)
+	}
+
+	registered, err := reg.Register(context.Background(), schema.SubjectConfig{
+		Subject:       topic + "-value",
+		ProtoSchema:   schema.LifecycleProto,
+		Compatibility: sr.CompatBackward,
+	})
+	if err != nil {
+		return fmt.Errorf("register schema: %v", err)
+	}
+
+	serde := schema.NewSerde([]schema.Binding{
+		{ID: registered.ID, Type: &lifecyclev1.LifecycleEvent{}, Index: []int{0}},
+	})
+
+	publisher, err := NewPublisher(redpandaBrokers, topic, serde)
 	if err != nil {
 		return fmt.Errorf("init publisher: %v", err)
 	}
@@ -52,7 +76,7 @@ func run() error {
 		return fmt.Errorf("init builder: %v", err)
 	}
 
-	consumer, err := NewConsumer(redpandaBrokers, topic, builder, publisher)
+	consumer, err := NewConsumer(redpandaBrokers, topic, builder, publisher, serde)
 	if err != nil {
 		return fmt.Errorf("init consumer: %v", err)
 	}
