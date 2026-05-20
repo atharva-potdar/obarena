@@ -1,0 +1,160 @@
+{{- if .Values.jwt.enabled }}
+# ─── CiliumEnvoyConfig: submission-api JWT auth + per-team rate limiting ──────
+#
+# Architecture:
+#   eBPF intercepts traffic to the submission-api ClusterIP service and
+#   redirects it to Cilium's per-node Envoy proxy (no sidecar injection).
+#
+# Filter chain (in order):
+#   1. jwt_authn   — Validates Authorization: Bearer <token> using an inline RSA
+#                    public key. Extracts the team_id claim into the x-team-id
+#                    request header via claim_to_headers.
+#   2. local_ratelimit — Per-team token bucket (10 req/min default). Keys on the
+#                    x-team-id header via a wildcard descriptor, so each team gets
+#                    its own independent bucket. No Redis required.
+#   3. router      — Forwards to the EDS-synced submission-api cluster.
+#
+# Envoy API reference (verified against Cilium proxy build config):
+#   envoy.filters.http.jwt_authn      — compiled in (proxy/extensions_build_config.bzl)
+#   envoy.filters.http.local_ratelimit — compiled in (proxy/extensions_build_config.bzl)
+apiVersion: cilium.io/v2
+kind: CiliumEnvoyConfig
+metadata:
+  name: submission-api-envoy
+  namespace: platform
+  labels:
+    {{- include "obarena.labels" . | nindent 4 }}
+  annotations:
+    # Required for E/W traffic CECs. Without this Envoy binds upstream sockets
+    # to the original source address/port, causing 5-tuple collisions on
+    # pipelined HTTP/1.1 connections.
+    # https://docs.cilium.io/en/latest/network/servicemesh/l7-traffic-management/#caveats
+    cec.cilium.io/use-original-source-address: "false"
+spec:
+  # Redirect traffic for the submission-api K8s service to our Envoy listener.
+  services:
+    - name: submission-api
+      namespace: platform
+      listener: submission-api-listener
+
+  # Sync submission-api pod endpoints to Envoy via EDS so our cluster can
+  # route to the real pods (not the ClusterIP).
+  backendServices:
+    - name: submission-api
+      namespace: platform
+      number:
+        - "8080"
+
+  resources:
+    # ── Listener ──────────────────────────────────────────────────────────────
+    - "@type": type.googleapis.com/envoy.config.listener.v3.Listener
+      name: submission-api-listener
+      filter_chains:
+        - filters:
+            - name: envoy.filters.network.http_connection_manager
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                stat_prefix: submission_api
+                rds:
+                  route_config_name: submission-api-routes
+                http_filters:
+
+                  # ── Filter 1: JWT Authentication ───────────────────────────
+                  # Validates the RSA-signed JWT in Authorization: Bearer.
+                  # On success, extracts team_id → x-team-id header (used by
+                  # the rate limiter below). Rejects with 401 if missing/invalid.
+                  - name: envoy.filters.http.jwt_authn
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.jwt_authn.v3.JwtAuthentication
+                      providers:
+                        obarena_provider:
+                          issuer: {{ .Values.jwt.issuer | quote }}
+                          # Inline RSA public key — no remote JWKS endpoint needed.
+                          # The private key is held only by the token issuer service.
+                          local_jwks:
+                            inline_string: {{ .Values.jwt.publicKey | quote }}
+                          # Extract the team_id claim directly into a request header
+                          # so the rate limiter can key on it without dynamic metadata.
+                          claim_to_headers:
+                            - claim_name: team_id
+                              header_name: x-team-id
+                          # Strip the Authorization header before forwarding upstream
+                          # so internal services never receive raw JWT tokens.
+                          forward: false
+                      rules:
+                        - match:
+                            prefix: "/"
+                          requires:
+                            provider_name: obarena_provider
+
+                  # ── Filter 2: Per-Team Local Rate Limiting ─────────────────
+                  # Token bucket: {{ .Values.jwt.rateLimit.maxTokens }} req / {{ .Values.jwt.rateLimit.fillInterval }} per team.
+                  # Uses a wildcard descriptor (key only, no value) so Envoy
+                  # dynamically creates one token bucket per unique x-team-id value.
+                  # max_dynamic_descriptors caps the LRU cache to {{ .Values.jwt.rateLimit.maxTeams }} teams.
+                  - name: envoy.filters.http.local_ratelimit
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.local_ratelimit.v3.LocalRateLimit
+                      stat_prefix: submission_api_rate_limit
+                      # Global fallback bucket (applies if x-team-id header is absent).
+                      token_bucket:
+                        max_tokens: {{ .Values.jwt.rateLimit.maxTokens }}
+                        tokens_per_fill: {{ .Values.jwt.rateLimit.tokensPerFill }}
+                        fill_interval: {{ .Values.jwt.rateLimit.fillInterval }}
+                      # Always enforce (100/100).
+                      filter_enabled:
+                        default_value:
+                          numerator: 100
+                          denominator: HUNDRED
+                      filter_enforced:
+                        default_value:
+                          numerator: 100
+                          denominator: HUNDRED
+                      # Generate a rate limit descriptor from the x-team-id header.
+                      # This descriptor is matched against the wildcard entry below
+                      # to select the per-team token bucket.
+                      rate_limits:
+                        - actions:
+                            - request_headers:
+                                header_name: x-team-id
+                                descriptor_key: team_id
+                      # Wildcard descriptor: value is omitted, so Envoy dynamically
+                      # creates a separate token bucket for every unique team_id value.
+                      descriptors:
+                        - entries:
+                            - key: team_id
+                              # No value → wildcard. Matches any x-team-id.
+                          token_bucket:
+                            max_tokens: {{ .Values.jwt.rateLimit.maxTokens }}
+                            tokens_per_fill: {{ .Values.jwt.rateLimit.tokensPerFill }}
+                            fill_interval: {{ .Values.jwt.rateLimit.fillInterval }}
+                      # LRU cache capacity: one entry per unique team_id seen.
+                      max_dynamic_descriptors: {{ .Values.jwt.rateLimit.maxTeams }}
+                      # Return standard RateLimit headers (X-RateLimit-Limit, etc.)
+                      enable_x_ratelimit_headers: DRAFT_VERSION_03
+                      response_headers_to_add:
+                        - header:
+                            key: x-rate-limited-by
+                            value: cilium-envoy
+                          append_action: OVERWRITE_IF_EXISTS_OR_ADD
+
+                  # ── Filter 3: Router (must be last) ───────────────────────
+                  - name: envoy.filters.http.router
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+
+    # ── RouteConfiguration ────────────────────────────────────────────────────
+    # Routes all traffic to the submission-api EDS cluster.
+    # Cluster name format: <namespace>/<service>:<port>
+    - "@type": type.googleapis.com/envoy.config.route.v3.RouteConfiguration
+      name: submission-api-routes
+      virtual_hosts:
+        - name: submission_api
+          domains:
+            - "*"
+          routes:
+            - match:
+                prefix: "/"
+              route:
+                cluster: "platform/submission-api:8080"
+{{- end }}

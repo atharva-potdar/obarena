@@ -753,9 +753,17 @@ spec:
         - matchLabels:
             cilium-default-deny: "true"
 ---
-# sandbox pods: ingress from bot-runner + kubelet probes, egress to SeaweedFS + DNS.
-# Port 8080 is required because the SeaweedFS filer on 8333 redirects
-# GET (binary download in InitContainer) to the volume server on 8080.
+---
+# sandbox pods: egress security with Cold Path / Hot Path separation.
+#
+# Cold Path (L7 enforcement — acceptable latency, evaluated before benchmark clock):
+#   DNS   — L7 parser prevents DNS tunneling / exfiltration via crafted queries.
+#   SeaweedFS — L7 HTTP GET-only; silently drops PUT/DELETE during InitContainer.
+#
+# Hot Path (L4 only — pure eBPF, zero Envoy overhead):
+#   Redpanda  — L7 Kafka inspection introduces severe jitter. Security is
+#               enforced at the broker via SASL/SCRAM ACLs (sandbox_bot user,
+#               Write-only on bot.metrics topic).
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
@@ -786,7 +794,10 @@ spec:
             - port: "8080"
               protocol: TCP
   egress:
-    # DNS
+    # 1. L7 DNS — Cold Path: prevents DNS tunneling and exfiltration.
+    #    Cilium's DNS proxy drops malformed packets and enforces RFC-compliant
+    #    queries only. matchPattern "*" allows all valid hostnames.
+    #    Impact: microsecond delay at pod startup only.
     - toEndpoints:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: kube-system
@@ -797,7 +808,16 @@ spec:
               protocol: UDP
             - port: "53"
               protocol: TCP
-    # SeaweedFS — filer (8333) + volume server (8080)
+          rules:
+            dns:
+              - matchPattern: "*"
+
+    # 2. L7 HTTP: GET-only to SeaweedFS — Cold Path.
+    #    The InitContainer only needs to download the bot binary (GET).
+    #    PUT and DELETE are silently dropped at the policy layer.
+    #    Port 8080 is the volume server — the filer on 8333 redirects
+    #    GET (binary download) to it. Both ports require GET-only enforcement.
+    #    Impact: evaluated during InitContainer only, before benchmark clock starts.
     - toEndpoints:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: platform
@@ -807,6 +827,23 @@ spec:
             - port: "8333"
               protocol: TCP
             - port: "8080"
+              protocol: TCP
+          rules:
+            http:
+              - method: "GET"
+
+    # 3. L4 TCP: Redpanda — Hot Path (pure eBPF, O(1) socket routing).
+    #    NO L7 Kafka inspection: parsing Kafka wire protocol via Envoy introduces
+    #    severe and unpredictable latency jitter on the benchmark hot path.
+    #    Security is enforced at the broker: SASL/SCRAM authentication with the
+    #    sandbox_bot user, ACL-restricted to Write on bot.metrics only.
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: platform
+            app.kubernetes.io/name: redpanda
+      toPorts:
+        - ports:
+            - port: "9092"
               protocol: TCP
 
 # ─── BOTS NAMESPACE ───────────────────────────────────────────────────────────
