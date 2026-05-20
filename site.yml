@@ -1,5 +1,12 @@
 ---
-- name: Install k0s + Cilium
+# ═══════════════════════════════════════════════════════════════════════════════
+# Play 1: Install k0s controller + core infrastructure
+# ═══════════════════════════════════════════════════════════════════════════════
+# Dev:  single-node controller+worker (--enable-worker --no-taints)
+# Prod: controller only (workers join separately in Play 3)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+- name: Install k0s controller
   hosts: k0s_controller
   become: true
   gather_facts: true
@@ -33,6 +40,8 @@
         msg: "{{ k0s_ver.stdout }}"
 
     # ─── k0s config ──────────────────────────────────────────────────────────
+    # In prod, injects the sandbox-static workerProfile for CPU pinning.
+    # In dev, generates a minimal config with no worker profiles.
 
     - name: Create k0s config directory
       ansible.builtin.file:
@@ -56,10 +65,24 @@
                 disabled: true
               podCIDR: {{ pod_cidr }}
               serviceCIDR: {{ service_cidr }}
+          {% if env == 'prod' %}
+            workerProfiles:
+              - name: sandbox-static
+                values:
+                  cpuManagerPolicy: static
+                  topologyManagerPolicy: single-numa-node
+                  memoryManagerPolicy: Static
+                  kubeReserved:
+                    cpu: "{{ sandbox_kube_reserved_cpu }}"
+                    memory: "{{ sandbox_kube_reserved_memory }}"
+                  systemReserved:
+                    cpu: "{{ sandbox_system_reserved_cpu }}"
+                    memory: "{{ sandbox_system_reserved_memory }}"
+          {% endif %}
 
     # ─── k0s service ─────────────────────────────────────────────────────────
 
-    - name: Install k0s as a systemd service
+    - name: Install k0s as a systemd service (dev — single node)
       ansible.builtin.command: >
         k0s install controller
         --enable-worker
@@ -67,6 +90,15 @@
         --config {{ k0s_config_path }}
       args:
         creates: /etc/systemd/system/k0scontroller.service
+      when: env == 'dev'
+
+    - name: Install k0s as a systemd service (prod — controller only)
+      ansible.builtin.command: >
+        k0s install controller
+        --config {{ k0s_config_path }}
+      args:
+        creates: /etc/systemd/system/k0scontroller.service
+      when: env == 'prod'
 
     - name: Start and enable k0s service
       ansible.builtin.systemd:
@@ -128,6 +160,21 @@
         group: "{{ ansible_user }}"
         mode: '0600'
       when: ansible_user is defined and ansible_user != 'root'
+
+    # ─── Worker join token (prod only) ────────────────────────────────────────
+
+    - name: Generate worker join token
+      ansible.builtin.command: k0s token create --role worker
+      register: k0s_worker_token
+      changed_when: false
+      when: env == 'prod'
+
+    - name: Save worker token to file
+      ansible.builtin.copy:
+        content: "{{ k0s_worker_token.stdout }}"
+        dest: /etc/k0s/worker-token
+        mode: '0600'
+      when: env == 'prod'
 
     # ─── Helm ────────────────────────────────────────────────────────────────
 
@@ -212,6 +259,7 @@
         --set ipam.operator.clusterPoolIPv4PodCIDRList='{{ "{" }}{{ pod_cidr }}{{ "}" }}'
         --set hubble.enabled=true
         --set hubble.relay.enabled=true
+        --set envoyConfig.enabled=true
       environment:
         KUBECONFIG: /root/.kube/config
       when: cilium_status.rc != 0
@@ -250,7 +298,10 @@
       ansible.builtin.debug:
         msg: "{{ cilium_final_status.stdout_lines }}"
 
-    # ─── Longhorn Prerequisites ──────────────────────────────────────────────
+    # ─── Storage: Dev (Longhorn) ────────────────────────────────────────────
+    # Longhorn provides software-defined storage for local/bare-metal dev.
+    # NOT used in prod — Longhorn on EBS is double replication (software
+    # network replication on top of already-replicated block storage).
 
     - name: Map iSCSI and NFS packages per OS family
       ansible.builtin.set_fact:
@@ -267,11 +318,12 @@
             else ''
           }}
         iscsi_service: 'iscsid'
+      when: env == 'dev'
 
     - name: Fail if OS family is unsupported for Longhorn prerequisites
       ansible.builtin.fail:
         msg: "Unsupported OS family: {{ ansible_os_family }}. Cannot install Longhorn prerequisites."
-      when: iscsi_package == '' or nfs_package == ''
+      when: env == 'dev' and (iscsi_package == '' or nfs_package == '')
 
     - name: Install iSCSI and NFS packages
       ansible.builtin.package:
@@ -279,14 +331,14 @@
           - "{{ iscsi_package }}"
           - "{{ nfs_package }}"
         state: present
+      when: env == 'dev'
 
     - name: Start and enable iSCSI service
       ansible.builtin.systemd:
         name: "{{ iscsi_service }}"
         state: started
         enabled: true
-
-    # ─── Longhorn Helm Install ────────────────────────────────────────────────
+      when: env == 'dev'
 
     - name: Add Longhorn Helm repository
       ansible.builtin.command: helm repo add longhorn https://charts.longhorn.io
@@ -294,12 +346,14 @@
         KUBECONFIG: /root/.kube/config
       register: longhorn_repo_add
       changed_when: "'already exists' not in longhorn_repo_add.stdout"
+      when: env == 'dev'
 
     - name: Update Helm repositories for Longhorn
       ansible.builtin.command: helm repo update
       environment:
         KUBECONFIG: /root/.kube/config
       changed_when: false
+      when: env == 'dev'
 
     - name: Create Longhorn namespace
       ansible.builtin.shell: >
@@ -309,6 +363,7 @@
       environment:
         KUBECONFIG: /root/.kube/config
       changed_when: false
+      when: env == 'dev'
 
     - name: Check if Longhorn is already installed
       ansible.builtin.command: helm status longhorn -n {{ longhorn_namespace }}
@@ -317,6 +372,7 @@
       register: longhorn_status
       failed_when: false
       changed_when: false
+      when: env == 'dev'
 
     - name: Install Longhorn via Helm
       ansible.builtin.command: >
@@ -334,7 +390,7 @@
         --set persistence.createStorageClass=false
       environment:
         KUBECONFIG: /root/.kube/config
-      when: longhorn_status.rc != 0
+      when: env == 'dev' and (longhorn_status.rc is defined and longhorn_status.rc != 0)
       changed_when: true
 
     - name: Label Kubernetes nodes for Longhorn default disk
@@ -345,8 +401,9 @@
       environment:
         KUBECONFIG: /root/.kube/config
       changed_when: false
+      when: env == 'dev'
 
-    # ─── Longhorn Verification ────────────────────────────────────────────────
+    # ─── Longhorn Verification (dev only) ──────────────────────────────────
 
     - name: Wait for Longhorn manager daemonset to be ready
       ansible.builtin.command: >
@@ -356,6 +413,7 @@
       environment:
         KUBECONFIG: /root/.kube/config
       changed_when: false
+      when: env == 'dev'
 
     - name: Wait for Longhorn driver deployer deployment to be ready
       ansible.builtin.command: >
@@ -365,6 +423,7 @@
       environment:
         KUBECONFIG: /root/.kube/config
       changed_when: false
+      when: env == 'dev'
 
     - name: Wait for Longhorn CSI plugin daemonset resource to exist
       ansible.builtin.shell: >
@@ -376,6 +435,7 @@
       retries: 30
       delay: 5
       changed_when: false
+      when: env == 'dev'
 
     - name: Wait for Longhorn CSI plugin daemonset to be ready
       ansible.builtin.command: >
@@ -384,4 +444,279 @@
         --timeout=300s
       environment:
         KUBECONFIG: /root/.kube/config
+      changed_when: false
+      when: env == 'dev'
+
+    # ─── Storage: Prod (AWS EBS CSI driver + gp3) ─────────────────────────
+    # Native gp3 via EBS CSI driver. Direct block device attachment via DMA,
+    # no software replication. WaitForFirstConsumer ensures the volume is
+    # created in the same AZ as the pod.
+
+    - name: Add AWS EBS CSI driver Helm repository
+      ansible.builtin.command: helm repo add aws-ebs-csi-driver https://kubernetes-sigs.github.io/aws-ebs-csi-driver
+      environment:
+        KUBECONFIG: /root/.kube/config
+      register: ebs_repo_add
+      changed_when: "'already exists' not in ebs_repo_add.stdout"
+      when: env == 'prod'
+
+    - name: Update Helm repositories for EBS CSI
+      ansible.builtin.command: helm repo update
+      environment:
+        KUBECONFIG: /root/.kube/config
+      changed_when: false
+      when: env == 'prod'
+
+    - name: Check if EBS CSI driver is already installed
+      ansible.builtin.command: helm status aws-ebs-csi-driver -n kube-system
+      environment:
+        KUBECONFIG: /root/.kube/config
+      register: ebs_csi_status
+      failed_when: false
+      changed_when: false
+      when: env == 'prod'
+
+    - name: Install AWS EBS CSI driver via Helm
+      ansible.builtin.command: >
+        helm upgrade --install aws-ebs-csi-driver
+        aws-ebs-csi-driver/aws-ebs-csi-driver
+        --namespace kube-system
+      environment:
+        KUBECONFIG: /root/.kube/config
+      when: env == 'prod' and (ebs_csi_status.rc is defined and ebs_csi_status.rc != 0)
+      changed_when: true
+
+    - name: Wait for EBS CSI controller to be ready
+      ansible.builtin.command: >
+        k0s kubectl rollout status deployment/ebs-csi-controller
+        -n kube-system
+        --timeout=300s
+      environment:
+        KUBECONFIG: /root/.kube/config
+      changed_when: false
+      when: env == 'prod'
+
+    - name: Create gp3 StorageClass (prod default)
+      ansible.builtin.shell: |
+        cat <<'EOF' | k0s kubectl apply -f -
+        apiVersion: storage.k8s.io/v1
+        kind: StorageClass
+        metadata:
+          name: gp3
+          annotations:
+            storageclass.kubernetes.io/is-default-class: "true"
+        provisioner: ebs.csi.aws.com
+        volumeBindingMode: WaitForFirstConsumer
+        parameters:
+          type: gp3
+          fsType: ext4
+          iops: "3000"
+          throughput: "125"
+        EOF
+      environment:
+        KUBECONFIG: /root/.kube/config
+      changed_when: false
+      when: env == 'prod'
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Play 2: Kernel tuning for sandbox nodes (prod only)
+# ═══════════════════════════════════════════════════════════════════════════════
+# Configures GRUB boot parameters for CPU isolation, disables irqbalance,
+# forces the performance CPU governor, sets vm.swappiness=0, and distributes
+# the seccomp profile. Only runs when env == 'prod'.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+- name: Kernel tuning for sandbox nodes
+  hosts: sandbox
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: Skip kernel tuning in dev
+      ansible.builtin.meta: end_play
+      when: env != 'prod'
+
+    # ─── Seccomp profile distribution ──────────────────────────────────────
+
+    - name: Ensure seccomp directory exists
+      ansible.builtin.file:
+        path: /var/lib/k0s/kubelet/seccomp
+        state: directory
+        mode: '0755'
+
+    - name: Distribute custom seccomp profile to sandbox nodes
+      ansible.builtin.copy:
+        src: files/sandbox-seccomp.json
+        dest: /var/lib/k0s/kubelet/seccomp/sandbox-seccomp.json
+        mode: '0644'
+
+    # ─── GRUB kernel isolation ─────────────────────────────────────────────
+
+    - name: Append isolation parameters to GRUB
+      ansible.builtin.lineinfile:
+        path: /etc/default/grub
+        regexp: '^GRUB_CMDLINE_LINUX='
+        line: 'GRUB_CMDLINE_LINUX="{{ sandbox_grub_params }}"'
+        backup: true
+      register: grub_changed
+
+    - name: Regenerate GRUB config
+      ansible.builtin.command: update-grub
+      when: grub_changed.changed
+
+    - name: Reboot to apply kernel parameters
+      ansible.builtin.reboot:
+        reboot_timeout: 300
+      when: grub_changed.changed
+
+    - name: Verify kernel boot parameters
+      ansible.builtin.command: cat /proc/cmdline
+      register: cmdline
+      changed_when: false
+
+    - name: Assert isolation parameters are active
+      ansible.builtin.assert:
+        that:
+          - "'isolcpus={{ sandbox_isolated_cpus }}' in cmdline.stdout"
+          - "'nohz_full={{ sandbox_isolated_cpus }}' in cmdline.stdout"
+          - "'rcu_nocbs={{ sandbox_isolated_cpus }}' in cmdline.stdout"
+        fail_msg: "Kernel isolation parameters not applied. /proc/cmdline: {{ cmdline.stdout }}"
+
+    # ─── Disable irqbalance ────────────────────────────────────────────────
+    # Prevents hardware network interrupts from landing on isolated cores.
+    # When stopped, the kernel routes IRQs to housekeeping cores (0-1).
+
+    - name: Disable irqbalance to protect sandbox cores from network interrupts
+      ansible.builtin.systemd:
+        name: irqbalance
+        state: stopped
+        enabled: false
+      ignore_errors: true  # irqbalance may not be installed on all distros
+
+    # ─── Force performance CPU governor ────────────────────────────────────
+    # With intel_pstate=disable, the kernel falls back to acpi-cpufreq with
+    # the ondemand governor. This creates a systemd oneshot to lock all cores
+    # at max frequency on every boot.
+
+    - name: Create CPU governor systemd service
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/cpu-governor-performance.service
+        mode: '0644'
+        content: |
+          [Unit]
+          Description=Set CPU governor to performance
+          After=cpufreq.service
+
+          [Service]
+          Type=oneshot
+          ExecStart=/bin/sh -c 'echo performance | tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor'
+          RemainAfterExit=yes
+
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: Enable and start CPU governor service
+      ansible.builtin.systemd:
+        name: cpu-governor-performance
+        state: started
+        enabled: true
+        daemon_reload: true
+
+    # ─── Disable memory swap jitter ────────────────────────────────────────
+    # Prevents the kernel from swapping container memory pages to disk.
+
+    - name: Disable kernel swappiness
+      ansible.posix.sysctl:
+        name: vm.swappiness
+        value: '0'
+        state: present
+        reload: true
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Play 3: Join workers to the k0s cluster (prod only)
+# ═══════════════════════════════════════════════════════════════════════════════
+# Platform workers join with the default kubelet profile.
+# Sandbox workers join with the sandbox-static profile (CPU pinning) and
+# are tainted + labeled to prevent platform workloads from scheduling there.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+- name: Join k0s workers
+  hosts: k0s_all_workers
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: Skip worker join in dev
+      ansible.builtin.meta: end_play
+      when: env != 'prod'
+
+    # ─── k0s binary ──────────────────────────────────────────────────────────
+
+    - name: Download k0s install script
+      ansible.builtin.get_url:
+        url: https://get.k0s.sh
+        dest: /tmp/get-k0s.sh
+        mode: '0755'
+
+    - name: Run k0s install script
+      ansible.builtin.command: /tmp/get-k0s.sh
+      args:
+        creates: /usr/local/bin/k0s
+
+    # ─── Worker token ────────────────────────────────────────────────────────
+
+    - name: Create k0s config directory
+      ansible.builtin.file:
+        path: /etc/k0s
+        state: directory
+        mode: '0755'
+
+    - name: Copy worker token from controller
+      ansible.builtin.copy:
+        content: "{{ hostvars[groups['k0s_controller'][0]].k0s_worker_token.stdout }}"
+        dest: /etc/k0s/worker-token
+        mode: '0600'
+
+    # ─── Join: platform workers (default kubelet config) ──────────────────
+
+    - name: Install k0s worker (platform)
+      ansible.builtin.command: >
+        k0s install worker
+        --token-file /etc/k0s/worker-token
+      args:
+        creates: /etc/systemd/system/k0sworker.service
+      when: "'sandbox' not in group_names"
+
+    # ─── Join: sandbox workers (static CPU manager + taints/labels) ───────
+    # The --profile flag activates the sandbox-static workerProfile defined
+    # in the controller's k0s.yaml. Labels and taints ensure only sandbox
+    # pods schedule here — platform workloads are rejected.
+
+    - name: Install k0s worker (sandbox — static CPU pinning)
+      ansible.builtin.command: >
+        k0s install worker
+        --token-file /etc/k0s/worker-token
+        --profile sandbox-static
+        --labels node-type=sandbox
+        --taints sandbox=true:NoSchedule
+      args:
+        creates: /etc/systemd/system/k0sworker.service
+      when: "'sandbox' in group_names"
+
+    # ─── Start worker ────────────────────────────────────────────────────────
+
+    - name: Start and enable k0s worker service
+      ansible.builtin.systemd:
+        name: k0sworker
+        state: started
+        enabled: true
+        daemon_reload: true
+
+    - name: Wait for worker to register with the cluster
+      ansible.builtin.command: >
+        k0s status
+      register: worker_status
+      until: worker_status.rc == 0
+      retries: 12
+      delay: 10
       changed_when: false

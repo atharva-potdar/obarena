@@ -1,16 +1,18 @@
 # Environment-specific variables
-region        = "us-east-1"
-cluster_name  = "iicpc-platform"
+environment  = "prod"
+region       = "us-east-1"
+cluster_name = "obarena-platform"
+
+# SSH access — required
+ssh_public_key = "ssh-rsa AAAA... user@host"
+admin_cidr     = "203.0.113.0/32"  # Lock down to your IP
+
+# Ubuntu 24.04 LTS AMI — update per region
+# ubuntu_ami = "ami-0a0e5d9c7acc336f1"
 
 # To override default instance types or sizing, uncomment and edit:
-# platform_instance_type = "m5.xlarge"
-# platform_min           = 2
-# platform_max           = 10
-
-# sandbox_instance_type  = "c5.2xlarge"
-# sandbox_min            = 1
-# sandbox_max            = 10
-
-# bots_instance_type     = "c5n.xlarge"
-# bots_min               = 0
-# bots_max               = 20
+# controller_instance_type = "t3.medium"
+# platform_instance_type   = "m5.xlarge"
+# platform_count           = 2
+# sandbox_instance_type    = "c5.4xlarge"
+# sandbox_count            = 2

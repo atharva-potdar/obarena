@@ -1,3 +1,7 @@
+# ─── Environment ──────────────────────────────────────────────────────────────
+# Override with: ansible-playbook site.yml -e env=prod
+env: "dev"
+
 # ─── Cluster networking ───────────────────────────────────────────────────────
 pod_cidr: "172.16.0.0/16"
 service_cidr: "10.96.0.0/12"
@@ -20,3 +24,22 @@ longhorn_version: "1.11.2"
 longhorn_namespace: "longhorn-system"
 longhorn_replica_count: 1
 longhorn_data_path: "/var/lib/longhorn"
+
+# ─── Kernel tuning (prod sandbox only) ────────────────────────────────────────
+# CPU cores to isolate on sandbox workers. Assumes 8 physical cores (c5.4xlarge
+# with SMT disabled): cores 0-1 for housekeeping, 2-7 for contestants.
+sandbox_isolated_cpus: "2-7"
+sandbox_grub_params: >-
+  isolcpus={{ sandbox_isolated_cpus }}
+  nohz_full={{ sandbox_isolated_cpus }}
+  rcu_nocbs={{ sandbox_isolated_cpus }}
+  intel_idle.max_cstate=0
+  processor.max_cstate=1
+  intel_pstate=disable
+  nosoftlockup
+
+# ─── k0s resource reservations (prod sandbox workers) ─────────────────────────
+sandbox_kube_reserved_cpu: "1"
+sandbox_kube_reserved_memory: "2Gi"
+sandbox_system_reserved_cpu: "1"
+sandbox_system_reserved_memory: "2Gi"

@@ -10,3 +10,9 @@ AGENTS.md
 SPEC.md
 docs/BUG.md
 docs/progress.md
+
+# Generated prod inventory (contains real IPs — never commit)
+inventory-prod.ini
+
+# Terraform variable overrides (may contain secrets)
+terraform.tfvars

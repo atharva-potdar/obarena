@@ -1,25 +1,23 @@
-output "kubeconfig_command" {
-  description = "Command to update local kubeconfig for the EKS cluster"
-  value       = "aws eks update-kubeconfig --name ${var.cluster_name} --region ${var.region}"
+data "aws_caller_identity" "current" {}
+
+output "controller_ip" {
+  description = "Private IP of the k0s controller node"
+  value       = aws_instance.controller.private_ip
 }
 
-# The registry_url and cluster_endpoint outputs will be populated when registry.tf and cluster.tf are added.
+output "platform_ips" {
+  description = "Private IPs of platform worker nodes"
+  value       = aws_instance.platform[*].private_ip
+}
 
-data "aws_caller_identity" "current" {}
+output "sandbox_ips" {
+  description = "Private IPs of sandbox worker nodes"
+  value       = aws_instance.sandbox[*].private_ip
+}
 
 output "registry_url" {
   description = "Base URL for the ECR registry"
   value       = "${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.region}.amazonaws.com"
-}
-
-output "cluster_endpoint" {
-  description = "Endpoint for EKS control plane"
-  value       = aws_eks_cluster.main.endpoint
-}
-
-output "cluster_security_group_id" {
-  description = "Security group ids attached to the cluster control plane"
-  value       = aws_eks_cluster.main.vpc_config[0].cluster_security_group_id
 }
 
 output "region" {
@@ -28,6 +26,6 @@ output "region" {
 }
 
 output "cluster_name" {
-  description = "Name of the EKS cluster"
+  description = "Name of the k0s cluster"
   value       = var.cluster_name
 }
