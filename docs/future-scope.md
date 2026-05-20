@@ -52,7 +52,7 @@
 
 ## Phase 4: Dedicated Compute & CPU Pinning
 
-### Physically Separate Node Pools
+### [COMPLETED] Physically Separate Node Pools
 
 **What:** Provision two distinct node pools in the cluster:
 
@@ -65,7 +65,7 @@
 
 **Caveat:** Node pool isolation interacts directly with CPU pinning. Even with dedicated sandbox nodes, if two sandbox pods land on the same node and both are pinned, they share memory bandwidth and L3 cache. True isolation requires one sandbox pod per node, which means the node pool sizing directly determines concurrent test capacity. A `c5.2xlarge` with 8 vCPUs can host at most one 2-core sandbox pod with the static CPU manager, because the remaining 6 cores are reserved for system pods and aren't allocatable as pinned cores without careful kubelet configuration. This significantly affects the cost model for production.
 
-### Static CPU Manager & Guaranteed QoS
+### [COMPLETED] Static CPU Manager & Guaranteed QoS
 
 **What:** Enable the Kubelet `static` CPU Manager policy on all sandbox pool nodes. Enforce the Guaranteed QoS class on all contestant pods by setting CPU requests equal to CPU limits (integer values only, e.g., `2` cores).
 
