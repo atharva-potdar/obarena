@@ -69,10 +69,10 @@ spec:
                       providers:
                         obarena_provider:
                           issuer: {{ .Values.jwt.issuer | quote }}
-                          # Inline RSA public key — no remote JWKS endpoint needed.
-                          # The private key is held only by the token issuer service.
+                          # Inline JWKS (JSON Web Key Set) — no remote endpoint needed.
+                          # Generate from PEM: python3 scripts/pem-to-jwks.py key.pub > key.jwks
                           local_jwks:
-                            inline_string: {{ .Values.jwt.publicKey | quote }}
+                            inline_string: {{ .Values.jwt.jwks | quote }}
                           # Extract the team_id claim directly into a request header
                           # so the rate limiter can key on it without dynamic metadata.
                           claim_to_headers:

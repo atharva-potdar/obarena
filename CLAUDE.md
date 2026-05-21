@@ -35,6 +35,7 @@ All infrastructure is managed via `just` (see `justfile` for all commands).
   - Leaderboard UI: `KUBECONFIG=~/.kube/config k0s kubectl port-forward -n platform svc/leaderboard-ws 8090:8090`
 
 - **E2E Smoke Test Submission** (Requires 8080 & 8333 forwarded):
+
   ```bash
   RESP=$(curl -s -X POST http://localhost:8080/submissions -H "Content-Type: application/json" -d '{"language":"go","team_name":"test-team"}') && URL=$(echo $RESP | jq -r '.presigned_url') && ID=$(echo $RESP | jq -r '.submission_id') && curl -X PUT -T ~/Projects/testserver.tar.gz "$URL" --resolve "seaweedfs.platform.svc.cluster.local:8333:127.0.0.1" && curl -s -X POST http://localhost:8080/submissions/$ID/confirm
   ```
@@ -51,3 +52,57 @@ All infrastructure is managed via `just` (see `justfile` for all commands).
 - **Thinking Process**: State results, decisions, and outcomes directly. Do not narrate your internal deliberations.
 - **Summaries**: Keep end-of-turn summaries extremely brief (one or two sentences), describing exactly what changed and what's next.
 - **Format Match**: Match response styling and length to the complexity of the task; a simple question must receive a simple, direct answer.
+
+## 🔐 Testing JWT Auth Locally
+
+To test the Envoy JWT + rate limiting layer in dev, generate a keypair and convert to JWKS:
+
+```bash
+# 1. Generate RSA keypair (one-time)
+openssl genrsa -out dev-jwt.key 2048
+openssl rsa -in dev-jwt.key -pubout -out dev-jwt.pub
+
+# 2. Convert PEM to JWKS (Envoy requires JWKS JSON, NOT raw PEM)
+python3 scripts/pem-to-jwks.py dev-jwt.pub > dev-jwt.jwks
+
+# 3. Deploy with JWT enabled
+just infra-up \
+  --set jwt.enabled=true \
+  --set-file jwt.jwks=dev-jwt.jwks \
+  --set jwt.issuer="dev-local"
+```
+
+> **Note:** After enabling `envoyConfig.enabled=true` in Cilium for the first time, the
+> `ciliumclusterwideenvoyconfigs.cilium.io` CRD must exist. If the Cilium agent logs show
+> `Still waiting for Cilium Operator to register CRDs`, apply it manually:
+> ```bash
+> KUBECONFIG=~/.kube/config k0s kubectl apply --server-side --force-conflicts \
+>   -f https://raw.githubusercontent.com/cilium/cilium/v1.19.4/pkg/k8s/apis/cilium.io/client/crds/v2/ciliumclusterwideenvoyconfigs.yaml
+> ```
+
+To generate a JWT token for a team `team-alpha`:
+
+```bash
+b64url() { base64 | tr -d '\n' | tr -d '=' | tr '/+' '_-'; }
+HEADER=$(echo -n '{"alg":"RS256","typ":"JWT"}' | b64url)
+PAYLOAD=$(echo -n '{"team_id":"team-alpha","iss":"dev-local","exp":1893456000}' | b64url)
+SIGNATURE=$(echo -n "$HEADER.$PAYLOAD" | openssl dgst -sha256 -sign dev-jwt.key -binary | b64url)
+export VALID_TOKEN="$HEADER.$PAYLOAD.$SIGNATURE"
+```
+
+To use this JWT token for a submission:
+
+```bash
+RESP=$(curl -s -X POST http://localhost:8080/submissions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $VALID_TOKEN" \
+  -d '{"language":"go","team_name":"team-alpha"}') \
+&& URL=$(echo $RESP | jq -r '.presigned_url') \
+&& ID=$(echo $RESP | jq -r '.submission_id') \
+&& echo "==> Uploading payload to SeaweedFS..." \
+&& curl -X PUT -T ~/Projects/testserver.tar.gz "$URL" --resolve "seaweedfs.platform.svc.cluster.local:8333:127.0.0.1" \
+&& echo -e "\n==> Confirming submission $ID..." \
+&& curl -s -X POST http://localhost:8080/submissions/$ID/confirm \
+  -H "Authorization: Bearer $VALID_TOKEN"
+```
+

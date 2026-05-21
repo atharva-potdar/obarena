@@ -16,3 +16,10 @@ inventory-prod.ini
 
 # Terraform variable overrides (may contain secrets)
 terraform.tfvars
+
+# Keys
+*.key
+*.pub
+*.pem
+*.crt
+dev-jwt.pub\ndev-jwt.jwks

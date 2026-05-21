@@ -153,17 +153,16 @@ storage:
 
 # ─── JWT Auth + Per-Team Rate Limiting (submission-api) ──────────────────────
 # Requires envoyConfig.enabled=true in Cilium (set in site.yml).
-# Set jwt.enabled=true in values-prod.yaml and provide a real RSA public key.
+# Set jwt.enabled=true in values-prod.yaml and provide a real JWKS.
 jwt:
   enabled: false
   issuer: "https://auth.obarena.example.com"
-  # RSA public key PEM for offline JWT signature verification.
-  # Generate: openssl genrsa -out jwt.key 2048 && openssl rsa -in jwt.key -pubout -out jwt.pub
-  # Paste the contents of jwt.pub here. Only the public half is needed.
-  publicKey: |
-    -----BEGIN PUBLIC KEY-----
-    PLACEHOLDER_REPLACE_WITH_REAL_RSA_PUBLIC_KEY
-    -----END PUBLIC KEY-----
+  # JWKS (JSON Web Key Set) for offline JWT signature verification.
+  # Envoy's jwt_authn filter requires JWKS JSON format, NOT raw PEM.
+  # Generate from a PEM public key using the pem-to-jwks.py script:
+  #   python3 scripts/pem-to-jwks.py dev-jwt.pub > dev-jwt.jwks
+  # Then deploy with: --set-file jwt.jwks=dev-jwt.jwks
+  jwks: '{}'
   rateLimit:
     maxTokens: 10      # bucket capacity
     tokensPerFill: 10  # tokens added each fill interval
