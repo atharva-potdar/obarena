@@ -16,14 +16,13 @@
     node_ip: "{{ ansible_facts['default_ipv4']['address'] }}"
 
   tasks:
-
     # ─── k0s binary ──────────────────────────────────────────────────────────
 
     - name: Download k0s install script
       ansible.builtin.get_url:
         url: https://get.k0s.sh
         dest: /tmp/get-k0s.sh
-        mode: '0755'
+        mode: "0755"
 
     - name: Run k0s install script
       ansible.builtin.command: /tmp/get-k0s.sh
@@ -47,12 +46,12 @@
       ansible.builtin.file:
         path: /etc/k0s
         state: directory
-        mode: '0755'
+        mode: "0755"
 
     - name: Write k0s config
       ansible.builtin.copy:
         dest: "{{ k0s_config_path }}"
-        mode: '0644'
+        mode: "0644"
         content: |
           apiVersion: k0s.k0sproject.io/v1beta1
           kind: ClusterConfig
@@ -129,7 +128,7 @@
       ansible.builtin.file:
         path: /root/.kube
         state: directory
-        mode: '0700'
+        mode: "0700"
 
     - name: Export kubeconfig for root
       ansible.builtin.shell: k0s kubeconfig admin > /root/.kube/config
@@ -139,14 +138,14 @@
     - name: Set kubeconfig permissions
       ansible.builtin.file:
         path: /root/.kube/config
-        mode: '0600'
+        mode: "0600"
 
     # Export kubeconfig for the non-root ansible user as well
     - name: Create .kube directory for ansible user
       ansible.builtin.file:
         path: "/home/{{ ansible_user }}/.kube"
         state: directory
-        mode: '0700'
+        mode: "0700"
         owner: "{{ ansible_user }}"
         group: "{{ ansible_user }}"
       when: ansible_user is defined and ansible_user != 'root'
@@ -158,7 +157,7 @@
         remote_src: true
         owner: "{{ ansible_user }}"
         group: "{{ ansible_user }}"
-        mode: '0600'
+        mode: "0600"
       when: ansible_user is defined and ansible_user != 'root'
 
     # ─── Worker join token (prod only) ────────────────────────────────────────
@@ -173,7 +172,7 @@
       ansible.builtin.copy:
         content: "{{ k0s_worker_token.stdout }}"
         dest: /etc/k0s/worker-token
-        mode: '0600'
+        mode: "0600"
       when: env == 'prod'
 
     # ─── Helm ────────────────────────────────────────────────────────────────
@@ -199,7 +198,7 @@
           ansible.builtin.get_url:
             url: "https://get.helm.sh/helm-{{ helm_version }}-linux-{{ helm_arch | trim }}.tar.gz"
             dest: /tmp/helm.tar.gz
-            mode: '0644'
+            mode: "0644"
 
         - name: Extract Helm binary
           ansible.builtin.unarchive:
@@ -212,7 +211,7 @@
             src: "/tmp/linux-{{ helm_arch | trim }}/helm"
             dest: "{{ helm_install_dir }}/helm"
             remote_src: true
-            mode: '0755'
+            mode: "0755"
 
         - name: Clean up Helm temp files
           ansible.builtin.file:
@@ -260,10 +259,30 @@
         --set hubble.enabled=true
         --set hubble.relay.enabled=true
         --set envoyConfig.enabled=true
+        --set envoy.enabled=true
       environment:
         KUBECONFIG: /root/.kube/config
       when: cilium_status.rc != 0
       changed_when: true
+
+    - name: Apply Cilium CRDs
+      ansible.builtin.command: >
+        kubectl apply -f
+        https://raw.githubusercontent.com/cilium/cilium/v{{ cilium_version }}/pkg/k8s/apis/cilium.io/client/crds/v2/{{ item }}
+      environment:
+        KUBECONFIG: /root/.kube/config
+      loop:
+        - ciliumenvoyconfigs.yaml
+      changed_when: false
+
+    - name: Wait for Cilium CRDs to be established
+      ansible.builtin.command: >
+        kubectl wait crd/ciliumenvoyconfigs.cilium.io
+        --for=condition=Established
+        --timeout=30s
+      environment:
+        KUBECONFIG: /root/.kube/config
+      changed_when: false
 
     # ─── Verify ──────────────────────────────────────────────────────────────
 
@@ -317,7 +336,7 @@
             else 'nfs-common' if ansible_os_family == 'Debian'
             else ''
           }}
-        iscsi_service: 'iscsid'
+        iscsi_service: "iscsid"
       when: env == 'dev'
 
     - name: Fail if OS family is unsupported for Longhorn prerequisites
@@ -542,20 +561,20 @@
       ansible.builtin.file:
         path: /var/lib/k0s/kubelet/seccomp
         state: directory
-        mode: '0755'
+        mode: "0755"
 
     - name: Distribute custom seccomp profile to sandbox nodes
       ansible.builtin.copy:
         src: files/sandbox-seccomp.json
         dest: /var/lib/k0s/kubelet/seccomp/sandbox-seccomp.json
-        mode: '0644'
+        mode: "0644"
 
     # ─── GRUB kernel isolation ─────────────────────────────────────────────
 
     - name: Append isolation parameters to GRUB
       ansible.builtin.lineinfile:
         path: /etc/default/grub
-        regexp: '^GRUB_CMDLINE_LINUX='
+        regexp: "^GRUB_CMDLINE_LINUX="
         line: 'GRUB_CMDLINE_LINUX="{{ sandbox_grub_params }}"'
         backup: true
       register: grub_changed
@@ -591,7 +610,7 @@
         name: irqbalance
         state: stopped
         enabled: false
-      ignore_errors: true  # irqbalance may not be installed on all distros
+      ignore_errors: true # irqbalance may not be installed on all distros
 
     # ─── Force performance CPU governor ────────────────────────────────────
     # With intel_pstate=disable, the kernel falls back to acpi-cpufreq with
@@ -601,7 +620,7 @@
     - name: Create CPU governor systemd service
       ansible.builtin.copy:
         dest: /etc/systemd/system/cpu-governor-performance.service
-        mode: '0644'
+        mode: "0644"
         content: |
           [Unit]
           Description=Set CPU governor to performance
@@ -628,7 +647,7 @@
     - name: Disable kernel swappiness
       ansible.posix.sysctl:
         name: vm.swappiness
-        value: '0'
+        value: "0"
         state: present
         reload: true
 
@@ -656,7 +675,7 @@
       ansible.builtin.get_url:
         url: https://get.k0s.sh
         dest: /tmp/get-k0s.sh
-        mode: '0755'
+        mode: "0755"
 
     - name: Run k0s install script
       ansible.builtin.command: /tmp/get-k0s.sh
@@ -669,13 +688,13 @@
       ansible.builtin.file:
         path: /etc/k0s
         state: directory
-        mode: '0755'
+        mode: "0755"
 
     - name: Copy worker token from controller
       ansible.builtin.copy:
         content: "{{ hostvars[groups['k0s_controller'][0]].k0s_worker_token.stdout }}"
         dest: /etc/k0s/worker-token
-        mode: '0600'
+        mode: "0600"
 
     # ─── Join: platform workers (default kubelet config) ──────────────────
 
