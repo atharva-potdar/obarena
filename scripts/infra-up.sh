@@ -16,6 +16,6 @@ helm upgrade --install obarena-platform infra/helm/obarena-platform/ \
   --namespace platform --create-namespace \
   -f infra/helm/obarena-platform/values-dev.yaml \
   --set image.tag=dev \
-  --wait --timeout 300s "$@"
+  --wait --timeout 300s
 
 echo "==> infra-up complete"

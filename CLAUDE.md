@@ -90,26 +90,19 @@ SIGNATURE=$(echo -n "$HEADER.$PAYLOAD" | openssl dgst -sha256 -sign dev-jwt.key 
 export VALID_TOKEN="$HEADER.$PAYLOAD.$SIGNATURE"
 ```
 
-To use this JWT token for a submission (run this from an in-cluster pod so it passes through the Cilium Envoy proxy, unlike port-forwarding which bypasses it):
+To use this JWT token for a submission:
 
 ```bash
-# 1. Initialize the upload (this hits the Envoy JWT filter)
-RESP=$(KUBECONFIG=~/.kube/config k0s kubectl run -i --rm test-client --image=curlimages/curl --restart=Never --quiet -- \
-  curl -s -X POST http://submission-api.platform.svc.cluster.local:8080/submissions \
+RESP=$(curl -s -X POST http://localhost:8080/submissions \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $VALID_TOKEN" \
   -d '{"language":"go","team_name":"team-alpha"}') \
-&& echo "Response: $RESP" \
 && URL=$(echo $RESP | jq -r '.presigned_url') \
-&& ID=$(echo $RESP | jq -r '.submission_id')
-
-# 2. Upload the payload directly to SeaweedFS (make sure port 8333 is forwarded)
-echo "==> Uploading payload to SeaweedFS..."
-curl -X PUT -T ~/Projects/testserver.tar.gz "$URL" --resolve "seaweedfs.platform.svc.cluster.local:8333:127.0.0.1"
-
-# 3. Confirm the submission (hits the Envoy JWT filter again)
-echo -e "\n==> Confirming submission $ID..."
-KUBECONFIG=~/.kube/config k0s kubectl run -i --rm test-client --image=curlimages/curl --restart=Never --quiet -- \
-  curl -s -X POST http://submission-api.platform.svc.cluster.local:8080/submissions/$ID/confirm \
+&& ID=$(echo $RESP | jq -r '.submission_id') \
+&& echo "==> Uploading payload to SeaweedFS..." \
+&& curl -X PUT -T ~/Projects/testserver.tar.gz "$URL" --resolve "seaweedfs.platform.svc.cluster.local:8333:127.0.0.1" \
+&& echo -e "\n==> Confirming submission $ID..." \
+&& curl -s -X POST http://localhost:8080/submissions/$ID/confirm \
   -H "Authorization: Bearer $VALID_TOKEN"
 ```
+

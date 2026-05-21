@@ -95,8 +95,8 @@ prefetch:
     sudo k0s ctr -n k8s.io images pull docker.io/alpine/curl:8.9.1
 
 # Bootstrap and install dev infrastructure services (KEDA & Platform chart).
-infra-up *args="":
-    ./scripts/infra-up.sh {{args}}
+infra-up:
+    bash scripts/infra-up.sh
 
 # Run smoke tests to check namespaces, network policies, RBAC, and pod readiness.
 smoke-test:
