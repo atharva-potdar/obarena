@@ -22,4 +22,4 @@ terraform.tfvars
 *.pub
 *.pem
 *.crt
-dev-jwt.pub\ndev-jwt.jwks
+*.jwks
